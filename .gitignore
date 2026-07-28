@@ -31,3 +31,4 @@ pnpm-debug.log*
 # local supabase
 supabase/.temp/
 supabase/.branches/
+files.zip
