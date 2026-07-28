@@ -1,0 +1,253 @@
+# Project: VoiceReach (working name) — AI Cold Email Platform
+
+## What this is
+B2B SaaS web app. Users connect their Gmail, the app builds a "voice profile" from their sent emails, then bulk-sends cold emails that are either (a) fully AI-written in the user's voice, or (b) a user-provided template with AI-personalized sections per recipient. Sends go through the user's own Gmail account. Later: internal warm-intro network between users (DO NOT build yet).
+
+## Team split (2 devs)
+- **Dev A (backend):** everything in `/server` — Gmail integration, send queue, AI engine, lead pipeline
+- **Dev B (product):** everything in `/web` + Supabase schema/RLS + migrations
+- The Supabase schema and the API routes in this doc are the contract. Do not change either without updating this file first.
+
+## Tech stack (do not substitute)
+- **Backend:** Node.js 20 + Express, plain JavaScript (no TypeScript)
+- **DB/Auth/Storage:** Supabase (Postgres). Supabase Auth for users. RLS on all tables.
+- **Frontend:** React (Vite), plain CSS or Tailwind — keep it simple
+- **Queue:** BullMQ + Redis
+- **Email:** Gmail API via googleapis npm package (OAuth 2.0). No SMTP/IMAP.
+- **AI:** Anthropic API, model `claude-sonnet-4-6`. SDK: `@anthropic-ai/sdk`
+- **Lead data:** Apollo.io API (stub behind an interface — API key may not exist yet)
+- **Web research:** Tavily API (stub behind an interface)
+- **Billing:** Stripe (Phase 4, not MVP)
+- **Deploy:** Railway (server + Redis), Supabase cloud
+
+## Repo structure
+```
+/server
+  /src
+    /routes        # Express routes
+    /services
+      gmail.js     # OAuth, ingestion, sending
+      voice.js     # voice profile builder
+      generate.js  # email generation (voice + template modes)
+      leads.js     # Apollo + Tavily (stubbed)
+      queue.js     # BullMQ producers/workers
+    /workers
+      sendWorker.js
+      replyWatcher.js
+      voiceSyncWorker.js  # weekly rolling re-sync of the voice profile
+    /lib
+      supabase.js  # service-role client
+      anthropic.js
+    index.js
+  .env.example
+/web
+  /src
+    /pages         # Onboarding, Campaigns, CampaignBuilder, Leads, Dashboard, Settings
+    /components
+    /lib
+      api.js       # fetch wrapper to server
+      supabase.js  # anon client (auth only)
+/supabase
+  /migrations
+CLAUDE.md          # this file
+```
+
+## Environment variables (.env.example — create with placeholders)
+```
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_ANON_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/gmail/callback
+ANTHROPIC_API_KEY=
+APOLLO_API_KEY=
+TAVILY_API_KEY=
+REDIS_URL=redis://localhost:6379
+APP_URL=http://localhost:5173
+```
+
+## Supabase schema (migration 001 — build exactly this)
+```sql
+-- users handled by supabase auth; profile extension:
+create table profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  gmail_connected boolean default false,
+  gmail_refresh_token_enc text,      -- AES-256-GCM encrypted app-side (TOKEN_ENC_KEY). NEVER stored plaintext, including in dev.
+  daily_send_limit int default 30,
+  created_at timestamptz default now()
+);
+
+create table voice_profiles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  profile_json jsonb not null,       -- the style guide
+  exemplars_enc text,                -- AES-256-GCM encrypted JSON array of 5-8 representative sent emails (few-shot anchors). User consents at onboarding; deletable in Settings.
+  source_email_count int,
+  version int default 1,             -- bumped on every re-sync
+  last_synced_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+
+create table campaigns (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  name text not null,
+  mode text not null check (mode in ('voice','template')),
+  template_body text,                -- null in voice mode; may contain {{first_name}}, {{company}}, {{personalized}}
+  subject_template text,
+  status text default 'draft' check (status in ('draft','generating','review','sending','paused','done')),
+  created_at timestamptz default now()
+);
+
+create table leads (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid references campaigns(id) on delete cascade,
+  user_id uuid references profiles(id) on delete cascade,
+  email text not null,
+  first_name text, last_name text, company text, title text, linkedin_url text,
+  research_json jsonb,               -- tavily/apollo enrichment
+  generated_subject text,
+  generated_body text,
+  edited_body text,                  -- user's manual edit wins over generated
+  fidelity_score int,                -- 0-100 from the generation fidelity check; <80 flags "low fidelity" in review UI
+  status text default 'pending' check (status in ('pending','generated','approved','queued','sent','replied','bounced','unsubscribed','failed')),
+  sent_at timestamptz, replied_at timestamptz,
+  gmail_message_id text, gmail_thread_id text,
+  created_at timestamptz default now()
+);
+
+create table unsubscribes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  email text not null,
+  created_at timestamptz default now(),
+  unique(user_id, email)
+);
+
+create table send_log (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id),
+  lead_id uuid references leads(id),
+  sent_at timestamptz default now()
+);
+-- RLS: enable on all tables; policy = user_id = auth.uid() for select/insert/update/delete.
+-- Server uses service-role key and bypasses RLS.
+```
+
+## API routes (server, all under /api, auth = Supabase JWT in Authorization header)
+```
+POST /gmail/connect          -> returns Google OAuth URL
+GET  /gmail/callback         -> handles code exchange, stores refresh token, kicks off ingestion
+POST /voice/generate         -> builds voice profile from ingested sent emails; returns profile
+GET  /voice                  -> current voice profile
+POST /campaigns              -> create campaign {name, mode, template_body?, subject_template?}
+GET  /campaigns              -> list with counts (sent/replied)
+GET  /campaigns/:id          -> detail + leads
+POST /campaigns/:id/leads    -> bulk add leads (CSV parsed client-side, JSON array here)
+POST /campaigns/:id/generate -> batch-generate emails for all pending leads (async, updates statuses)
+PATCH /leads/:id             -> edit body/subject, approve, etc.
+POST /campaigns/:id/send     -> queue all approved leads, set status 'sending'
+POST /campaigns/:id/pause
+GET  /dashboard              -> aggregate stats
+POST /unsubscribe/:token     -> public route, no auth (token = signed lead id)
+```
+
+## Core implementation specs
+
+### 1. Gmail OAuth + ingestion (gmail.js)
+- Scopes: `gmail.readonly`, `gmail.send`, `gmail.modify` (modify needed for reply watch labels later — start with readonly + send only).
+- Store the refresh token in `profiles.gmail_refresh_token_enc`, AES-256-GCM encrypted via `lib/crypto.js` before the write — never plaintext, dev included. Build a `getAuthedClient(userId)` helper that decrypts in memory and refreshes access tokens automatically.
+- Ingestion: fetch the user's last **100** sent emails (`in:sent`) — if they have fewer than 100, use whatever exists; if more, take only the most recent 100. Extract plain-text body, strip quoted replies (lines starting with `>` and everything after `On ... wrote:`), strip signature (heuristic: everything after `--` or last 4 lines if they contain phone/url patterns). Hold cleaned texts in memory only — pass directly to voice builder, never write raw bodies to DB, disk, or logs.
+- **Continuous voice sync (voiceSyncWorker.js):** the voice model improves over time from the user's ongoing real emails. Cron per user (weekly, plus a manual "Re-sync now" button in Settings): fetch sent emails newer than `voice_profiles.last_synced_at` (use Gmail `after:` query), clean them the same way, and re-run the full profile analysis over the rolling window of the most recent 100 sent emails. Merge: new analysis replaces `profile_json` but `learned_corrections[]` from user edits are preserved and re-appended. Bump `version`, set `last_synced_at`. Same ephemeral rules — bodies in memory only, nothing raw persisted.
+- Exemplar selection: from the cleaned set, have the model pick the 5–8 emails that best represent the user's natural outreach voice (excluding one-liners, forwards, anything with obvious PII of third parties beyond names). Redact recipient email addresses and phone numbers from exemplars. Encrypt (AES-256-GCM, TOKEN_ENC_KEY) and store in `voice_profiles.exemplars_enc`. Onboarding UI must show these to the user for explicit approval ("These emails will be used as style references — approve / swap / remove") before saving. On re-sync, if the model finds stronger exemplar candidates, it proposes swaps in the UI — exemplars never change without user approval. Settings has a "Delete my exemplars" button that hard-deletes them.
+
+### 2. Voice profile (voice.js) — CORE PRODUCT, exactness is the whole point
+One Anthropic API call over the cleaned sent emails. The profile must capture *mechanics*, not vibes — return ONLY JSON:
+```json
+{
+  "tone": "", "formality_1to10": 0,
+  "greeting_styles": ["exact greetings they actually use, verbatim"],
+  "signoff_styles": ["verbatim"],
+  "typical_length_words": {"min": 0, "median": 0, "max": 0},
+  "sentence_rhythm": "e.g. short punchy 5-12 word sentences, occasional fragment",
+  "paragraph_style": "e.g. 1-2 sentence paragraphs, no walls of text",
+  "contractions": "always/sometimes/never",
+  "capitalization_quirks": "e.g. lowercase i, no caps after dash",
+  "punctuation_habits": "e.g. dashes over commas, no exclamation marks, ellipses",
+  "sentence_starters": ["verbatim frequent openers"],
+  "transition_words": ["verbatim"],
+  "how_they_ask": "how this person actually makes requests/CTAs, with a verbatim example",
+  "signature_phrases": ["verbatim phrases used 2+ times"],
+  "vocabulary_level": "", "emoji_usage": "", "humor": "",
+  "never_does": ["patterns absent from their writing that AI would typically add — e.g. never says 'I hope this finds you well', never uses semicolons"]
+}
+```
+Parse defensively (strip ```json fences). Input = rolling window of up to 100 most recent sent emails (~80k chars cap; if over, keep the most recent that fit). The `never_does` list is critical — it's the anti-AI-slop filter.
+
+### 3. Generation (generate.js)
+- **Voice mode:** prompt = voice profile JSON + lead data + research_json + user's campaign goal → generate subject + body. Return JSON `{subject, body}`.
+- **Template mode:** user template contains `{{personalized}}` marker(s) plus merge vars. Merge vars (`{{first_name}}`, `{{company}}`, `{{title}}`) are replaced in code, NOT by the model. Only `{{personalized}}` sections go to Claude with lead research. If a merge var is missing for a lead, flag the lead `failed` with reason — never send with blank/wrong substitutions.
+- Batch: iterate leads sequentially with p-limit concurrency 3. Update each lead row as it completes so the UI can poll progress.
+- **Few-shot anchoring (mandatory in voice mode):** every generation prompt includes the decrypted exemplars as "here are real emails this person wrote" alongside the profile JSON. The instruction: match these mechanically — length, rhythm, greeting, sign-off, punctuation — not just tone. Exemplars are decrypted in memory per-request, never logged.
+- **Fidelity check pass:** after generating, a second lightweight call scores the draft against profile + exemplars: `{score_0to100, violations:[]}` checking length within user's median±40%, greeting/sign-off from their actual lists, no `never_does` violations, rhythm match. Score <80 → regenerate once with violations fed back. Still <80 → flag lead `generated` with a "low fidelity" badge so the user reviews it first. Store score on the lead row (`fidelity_score int`).
+- **Edit-learning loop:** when a user edits a generated email on the review screen, diff generated vs edited; if the diff is stylistic (not content), append a note to `profile_json.learned_corrections[]` (e.g. "user removes exclamation marks", "user shortens greetings to just the name"). Cap at 20 corrections, FIFO. These get injected into future generation prompts.
+- Guardrails: banned phrases list (`"I hope this email finds you well"`, `"I know you're busy"`, `"quick question"` as subject, `"I'll keep this brief"`, `"delve"`, `"leverage"` unless the user's own emails use them), reject and regenerate once if hit. Length limit comes from the user's own typical_length_words, not a fixed cap.
+- Every generated body must end with an unsubscribe line: `\n\nDon't want emails from me? [Unsubscribe]({APP_URL}/u/{signedToken})`.
+
+### 4. Sending (queue.js + sendWorker.js)
+- BullMQ queue `sends`. Job = `{leadId}`. Worker: check daily limit via send_log count for today, check unsubscribes table, build MIME message (use `nodemailer` mail-composer or raw RFC 2822 + base64url), send via `gmail.users.messages.send`, store gmail_message_id/thread_id, insert send_log, set lead `sent`.
+- Spacing: delay jobs 90–240s apart (randomized) per user. If daily limit hit, delay job to tomorrow 9am user-local (store tz later; UTC for MVP).
+- On 4xx from Gmail (auth revoked): pause campaign, set gmail_connected=false.
+
+### 5. Reply detection (replyWatcher.js)
+- MVP: cron every 10 min per active campaign → `gmail.users.threads.get` on each sent lead's thread; if messages count > 1 and a message is not from the user, mark lead `replied`, remove any pending follow-up jobs. (Gmail push notifications/watch = later.)
+
+### 6. Lead pipeline (leads.js) — STUB FOR MVP
+- Export `enrichLead(lead)` and `researchLead(lead)` with the real Apollo/Tavily call shapes, but if API keys are absent return `{}` gracefully. MVP flow is CSV upload only.
+
+## Frontend pages (web)
+1. **Onboarding:** signup/login (Supabase Auth) → "Connect Gmail" button → OAuth → "Building your voice profile…" progress screen (poll GET /voice) → show profile summary, allow "Regenerate."
+2. **Campaigns list:** cards with name, mode badge, sent/replied counts, status.
+3. **Campaign builder:** name → mode toggle (Voice / Template) → if template: textarea editor with a merge-var helper bar ({{first_name}} {{company}} {{title}} {{personalized}}) → CSV upload (papaparse client-side, map columns to fields, preview table) → "Generate emails" → progress bar (poll leads statuses).
+4. **Review screen (the money screen):** list of leads, click one → generated subject/body in editable fields → Approve / Approve All / Regenerate one. Only approved leads can be sent.
+5. **Dashboard:** totals (sent, replies, reply rate) + per-campaign table.
+6. **Settings:** daily limit slider (10–50), voice profile viewer + regenerate, unsubscribe list, disconnect Gmail.
+7. **Public unsubscribe page:** `/u/:token` → one click → confirmation. No auth.
+
+## Build order (do phases in sequence, each must run before next)
+- **Phase 1:** Repo scaffold, Supabase migration 001 + RLS, Supabase auth on frontend, Express skeleton with JWT middleware, .env.example, both apps run locally.
+- **Phase 2:** Gmail OAuth + sent-mail ingestion + voice profile end-to-end (test with a real Gmail dev account).
+- **Phase 3:** Campaigns + CSV upload + generation (both modes) + review screen.
+- **Phase 4:** Send queue + worker + unsubscribe route/page + reply watcher + dashboard.
+- **Phase 5 (post-MVP, do not start unless told):** Apollo/Tavily real integration, Stripe, follow-up sequences, warm-intro network, Outlook.
+
+## Security (non-negotiable — this product reads people's email; one leak kills the company)
+- **Encryption:** `TOKEN_ENC_KEY` (32-byte, in env) encrypts Gmail refresh tokens and voice exemplars via AES-256-GCM app-side before any DB write. Build `lib/crypto.js` with `encrypt(text)` / `decrypt(blob)` — random IV per record, auth tag stored with ciphertext. Nothing sensitive is ever stored plaintext, dev included.
+- **Raw email bodies:** exist only in process memory during ingestion/generation. Never in DB (except approved exemplars, encrypted), never on disk, never in logs, never in error messages, never sent to any third party except the Anthropic API for the profile/generation calls themselves.
+- **Logging:** structured logs with an allowlist of fields. Redaction middleware strips anything matching email-body/token patterns before write. No request-body logging on any route that carries email content.
+- **Scopes:** request the minimum Gmail scopes (`gmail.readonly` + `gmail.send` for MVP). Do not add `gmail.modify` until reply-labeling actually needs it.
+- **Disconnect = revoke:** "Disconnect Gmail" calls Google's token revocation endpoint, deletes the encrypted token, deletes exemplars, sets gmail_connected=false. Account deletion cascades everything (schema already cascades).
+- **Transport/API hardening:** helmet, CORS locked to APP_URL only, express-rate-limit on all routes (strict on auth + OAuth callback), 1MB JSON body limit, Supabase JWT verified server-side on every route.
+- **RLS:** enabled on every table, `user_id = auth.uid()` policies. Frontend anon client can only touch auth. All data access goes through the server with the service-role key; service-role key never ships to the client.
+- **Unsubscribe tokens:** HMAC-SHA256 signed (`UNSUB_SECRET`), verified server-side, no DB lookup needed to validate. Unguessable, non-enumerable.
+- **Secrets:** .env never committed; .env.example has placeholders only. Railway env vars for prod. Rotate TOKEN_ENC_KEY support: version byte prefix on ciphertexts.
+- **Dependencies:** pin versions. Before each phase completes, `npm audit --omit=dev --audit-level=high` must pass in both apps — no high or critical vulnerabilities in **production** dependencies. Dev-dependency vulnerabilities do not block a phase: they never ship, and force-fixing them breaks toolchains for no real risk reduction. Record them as known warnings instead. Fix prod vulns with targeted version bumps, never a blanket `npm audit fix --force`; if the only fix is a breaking major bump, raise the tradeoff before applying it.
+
+Add to .env.example:
+```
+TOKEN_ENC_KEY=
+UNSUB_SECRET=
+```
+
+## Rules
+- No TypeScript, no Next.js, no ORM (use supabase-js / raw SQL).
+- **Testing is mandatory:** Phase 1 sets up vitest (server) + eslint (both apps) with npm scripts: `npm run test`, `npm run lint`, `npm run check` (runs both + `node --check` on entry files). Every feature ships with tests for its service functions (mock Gmail/Anthropic/Supabase calls — never hit real APIs in tests). The checker agent depends on these scripts existing.
+- **Agent workflow:** all features are built via the builder/checker loop defined in `.claude/agents/` and `.claude/commands/build-loop.md`. The builder never runs tests; the checker never edits code.
+- Never log email bodies or tokens. Never commit .env.
+- Voice fidelity is the product. If a change makes generation faster/cheaper but less exact to the user's voice, don't make it.
+- Every route: validate input, return `{error}` JSON with proper status codes.
+- Keep files under ~300 lines; split when bigger.
+- Write a README with local setup steps (Supabase project, Google Cloud OAuth app setup steps included).
+- Anthropic API docs if needed: https://docs.claude.com/en/api/overview

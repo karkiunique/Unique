@@ -1,0 +1,29 @@
+tests/app.test.js > GET /api/health > is public and returns ok
+tests/app.test.js > GET /api/health > sets helmet security headers
+tests/app.test.js > GET /api/me > 401s with an invalid token
+tests/app.test.js > GET /api/me > 401s without a token
+tests/app.test.js > GET /api/me > returns the authenticated user
+tests/app.test.js > app hardening > allows the configured APP_URL origin
+tests/app.test.js > app hardening > does not send CORS headers to a disallowed origin
+tests/app.test.js > app hardening > returns 400 {error} for malformed JSON bodies
+tests/app.test.js > app hardening > returns JSON {error} for unknown routes
+tests/auth.test.js > extractBearerToken > is case-insensitive on the scheme
+tests/auth.test.js > extractBearerToken > returns null for a non-bearer scheme
+tests/auth.test.js > extractBearerToken > returns null when the header is missing
+tests/auth.test.js > extractBearerToken > returns null when the scheme has no token
+tests/auth.test.js > extractBearerToken > returns null when there are extra segments
+tests/auth.test.js > extractBearerToken > returns the token for a well-formed header
+tests/auth.test.js > extractBearerToken > tolerates a request with no headers object
+tests/auth.test.js > requireAuth > 401s when Supabase rejects the token
+tests/auth.test.js > requireAuth > 401s when Supabase returns no user
+tests/auth.test.js > requireAuth > 401s when no Authorization header is present
+tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
+tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/logger.test.js > logger > sends errors to console.error
+tests/logger.test.js > logger > writes a single structured JSON line without disallowed fields
+tests/logger.test.js > sanitizeMeta > drops fields that are not allowlisted (e.g. email bodies)
+tests/logger.test.js > sanitizeMeta > keeps allowlisted fields
+tests/logger.test.js > sanitizeMeta > redacts non-scalar values
+tests/logger.test.js > sanitizeMeta > redacts token-shaped values even on allowlisted fields
+tests/logger.test.js > sanitizeMeta > returns an empty object for missing or non-object meta
+tests/logger.test.js > sanitizeMeta > truncates long strings
