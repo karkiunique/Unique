@@ -14,6 +14,7 @@ vi.mock('../src/lib/logger.js', () => ({
 }));
 
 const { requireAuth, extractBearerToken } = await import('../src/middleware/auth.js');
+const { logger } = await import('../src/lib/logger.js');
 
 function mockRes() {
   const res = { statusCode: null, body: null };
@@ -38,6 +39,9 @@ function mockReq(authorization) {
 
 beforeEach(() => {
   getUser.mockReset();
+  logger.info.mockClear();
+  logger.warn.mockClear();
+  logger.error.mockClear();
 });
 
 describe('extractBearerToken', () => {

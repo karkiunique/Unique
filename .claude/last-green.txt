@@ -1,12 +1,17 @@
+tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
+tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
 tests/app.test.js > GET /api/health > sets helmet security headers
 tests/app.test.js > GET /api/me > 401s with an invalid token
 tests/app.test.js > GET /api/me > 401s without a token
 tests/app.test.js > GET /api/me > returns the authenticated user
+tests/app.test.js > POST /api/gmail/connect > 401s without a token
 tests/app.test.js > app hardening > allows the configured APP_URL origin
 tests/app.test.js > app hardening > does not send CORS headers to a disallowed origin
 tests/app.test.js > app hardening > returns 400 {error} for malformed JSON bodies
 tests/app.test.js > app hardening > returns JSON {error} for unknown routes
+tests/app.test.js > voice routes > 401s on GET /api/voice without a token
+tests/app.test.js > voice routes > 401s on POST /api/voice/generate without a token
 tests/auth.test.js > extractBearerToken > is case-insensitive on the scheme
 tests/auth.test.js > extractBearerToken > returns null for a non-bearer scheme
 tests/auth.test.js > extractBearerToken > returns null when the header is missing
@@ -19,6 +24,75 @@ tests/auth.test.js > requireAuth > 401s when Supabase returns no user
 tests/auth.test.js > requireAuth > 401s when no Authorization header is present
 tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
 tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/crypto.test.js > encrypt / decrypt > does not echo plaintext in the failure message
+tests/crypto.test.js > encrypt / decrypt > never stores the plaintext in the blob
+tests/crypto.test.js > encrypt / decrypt > prefixes the blob with the v1 version byte
+tests/crypto.test.js > encrypt / decrypt > produces a different ciphertext each time for identical input (random IV)
+tests/crypto.test.js > encrypt / decrypt > rejects a blob encrypted under a different key
+tests/crypto.test.js > encrypt / decrypt > rejects a tampered blob
+tests/crypto.test.js > encrypt / decrypt > rejects a truncated blob
+tests/crypto.test.js > encrypt / decrypt > rejects an unknown version byte
+tests/crypto.test.js > encrypt / decrypt > rejects non-string inputs
+tests/crypto.test.js > encrypt / decrypt > round-trips a value
+tests/crypto.test.js > encrypt / decrypt > round-trips an empty string
+tests/crypto.test.js > encrypt / decrypt > round-trips unicode and multi-line JSON
+tests/crypto.test.js > encrypt / decrypt > throws a clear error when TOKEN_ENC_KEY is missing
+tests/crypto.test.js > encrypt / decrypt > throws a clear error when TOKEN_ENC_KEY is the wrong length
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > flags html markup that survived into the extracted text
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > flags nothing removed for a clean body
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > flags the quoted reply and signature it stripped
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > logs counts only, never bodies
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > omits raw by default and includes it with ?includeRaw=1
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > returns the summary counts for the corpus the voice builder would receive
+tests/devInspect.test.js > GET /api/dev/ingest-preview — corpus > sets Cache-Control: no-store so the corpus is never cached
+tests/devInspect.test.js > GET /api/dev/ingest-preview — failures > 400s with {error} when Gmail is not connected
+tests/devInspect.test.js > GET /api/dev/ingest-preview — failures > 500s with a generic {error} when the profile read fails
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 401s without a token when enabled
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='' (exact 'true' match only)
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='0' (exact 'true' match only)
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='1' (exact 'true' match only)
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='TRUE' (exact 'true' match only)
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='false' (exact 'true' match only)
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='yes' (exact 'true' match only)
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s in production even when ENABLE_DEV_ROUTES is true
+tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s when ENABLE_DEV_ROUTES is unset
+tests/gmail.test.js > buildAuthUrl > asks for offline access with a forced consent prompt
+tests/gmail.test.js > buildAuthUrl > carries the user id in an opaque state param
+tests/gmail.test.js > buildAuthUrl > rejects a state that was not issued by us
+tests/gmail.test.js > buildAuthUrl > requests gmail.readonly only
+tests/gmail.test.js > cleanEmailBody > collapses runs of blank lines
+tests/gmail.test.js > cleanEmailBody > returns an empty string for empty input
+tests/gmail.test.js > cleanEmailBody > strips signature and quoted reply together
+tests/gmail.test.js > extractPlainTextBody > falls back to stripped html when there is no text/plain part
+tests/gmail.test.js > extractPlainTextBody > finds text/plain inside nested multipart parts
+tests/gmail.test.js > extractPlainTextBody > normalises CRLF line endings
+tests/gmail.test.js > extractPlainTextBody > returns an empty string for a missing or bodyless payload
+tests/gmail.test.js > fetchSentEmails > appends an after: filter when one is supplied
+tests/gmail.test.js > fetchSentEmails > caps at the 100 most recent sent emails
+tests/gmail.test.js > fetchSentEmails > drops messages whose cleaned body is empty
+tests/gmail.test.js > fetchSentEmails > logs counts only, never bodies
+tests/gmail.test.js > fetchSentEmails > queries in:sent and returns an empty list when the mailbox is empty
+tests/gmail.test.js > fetchSentEmails > uses whatever exists when there are fewer than 100
+tests/gmail.test.js > getAuthedClient > decrypts the stored token in memory and sets it on the client
+tests/gmail.test.js > getAuthedClient > rejects when Gmail is not connected
+tests/gmail.test.js > handleCallback > never leaks the authorization code when the exchange fails
+tests/gmail.test.js > handleCallback > rejects a missing code before calling Google
+tests/gmail.test.js > handleCallback > rejects an invalid state before calling Google
+tests/gmail.test.js > handleCallback > rejects when Google returns no refresh token
+tests/gmail.test.js > handleCallback > stores the refresh token encrypted and marks the profile connected
+tests/gmail.test.js > stripQuotedReplies > drops an -----Original Message----- block
+tests/gmail.test.js > stripQuotedReplies > drops everything from an 'On ... wrote:' line onward
+tests/gmail.test.js > stripQuotedReplies > drops lines starting with '>'
+tests/gmail.test.js > stripQuotedReplies > handles a wrapped 'On ... wrote:' header
+tests/gmail.test.js > stripQuotedReplies > leaves an unquoted body untouched
+tests/gmail.test.js > stripSignature > drops everything after a '--' delimiter line
+tests/gmail.test.js > stripSignature > drops trailing lines that look like a signature (phone / url)
+tests/gmail.test.js > stripSignature > keeps a body with no signature at all
+tests/httpError.test.js > httpError > builds an Error carrying a status and an expose flag
+tests/httpError.test.js > safeMessage > hides messages from plain errors
+tests/httpError.test.js > safeMessage > hides messages on 5xx even when they are ours
+tests/httpError.test.js > safeMessage > hides third-party SDK messages that happen to carry a status
+tests/httpError.test.js > safeMessage > returns our own 4xx messages
 tests/logger.test.js > logger > sends errors to console.error
 tests/logger.test.js > logger > writes a single structured JSON line without disallowed fields
 tests/logger.test.js > sanitizeMeta > drops fields that are not allowlisted (e.g. email bodies)
@@ -27,3 +101,42 @@ tests/logger.test.js > sanitizeMeta > redacts non-scalar values
 tests/logger.test.js > sanitizeMeta > redacts token-shaped values even on allowlisted fields
 tests/logger.test.js > sanitizeMeta > returns an empty object for missing or non-object meta
 tests/logger.test.js > sanitizeMeta > truncates long strings
+tests/voice.test.js > buildVoiceProfile > caps the prompt at the 80k char window, keeping the most recent emails
+tests/voice.test.js > buildVoiceProfile > makes exactly one Anthropic call with the pinned model
+tests/voice.test.js > buildVoiceProfile > rejects an empty inbox without calling the model
+tests/voice.test.js > buildVoiceProfile > seeds learned_corrections so the edit-learning loop has somewhere to append
+tests/voice.test.js > buildVoiceProfile > surfaces a parse failure without leaking the model output
+tests/voice.test.js > capEmailsToCharBudget > defaults to the 80k char window
+tests/voice.test.js > capEmailsToCharBudget > ignores empty entries
+tests/voice.test.js > capEmailsToCharBudget > keeps everything when it already fits
+tests/voice.test.js > capEmailsToCharBudget > keeps the most recent emails that fit the budget
+tests/voice.test.js > generateVoiceProfileForUser > ingests, analyses, and saves without ever logging a body
+tests/voice.test.js > generateVoiceProfileForUser > rejects when the mailbox has no sent email
+tests/voice.test.js > generateVoiceProfileForUser > still saves the profile when exemplar selection fails
+tests/voice.test.js > getVoiceProfile > returns null when the user has no profile yet
+tests/voice.test.js > getVoiceProfile > returns the row without the encrypted exemplars
+tests/voice.test.js > parseExemplarIndices > converts 1-based email numbers to 0-based indices
+tests/voice.test.js > parseExemplarIndices > drops out-of-range, duplicate and junk entries
+tests/voice.test.js > parseExemplarIndices > returns an empty list for unparseable output
+tests/voice.test.js > parseExemplarIndices > strips fences and prose
+tests/voice.test.js > parseProfileJson > ignores prose around the object
+tests/voice.test.js > parseProfileJson > never echoes the model output in the error
+tests/voice.test.js > parseProfileJson > parses a bare JSON object
+tests/voice.test.js > parseProfileJson > strips ```json fences
+tests/voice.test.js > parseProfileJson > strips bare ``` fences
+tests/voice.test.js > parseProfileJson > throws on empty or non-object responses
+tests/voice.test.js > parseProfileJson > throws on malformed JSON
+tests/voice.test.js > redactPii > leaves ordinary prose and short numbers alone
+tests/voice.test.js > redactPii > removes email addresses
+tests/voice.test.js > redactPii > removes phone numbers
+tests/voice.test.js > redactPii > returns an empty string for non-strings
+tests/voice.test.js > saveVoiceProfile > encrypts the exemplars before the write
+tests/voice.test.js > saveVoiceProfile > never returns the encrypted exemplars to the caller
+tests/voice.test.js > saveVoiceProfile > raises a generic failure when the insert fails
+tests/voice.test.js > saveVoiceProfile > stores null when there are no exemplars
+tests/voice.test.js > saveVoiceProfile > validates its inputs
+tests/voice.test.js > selectExemplars > excludes one-liners from the candidate pool
+tests/voice.test.js > selectExemplars > never returns more than 8 anchors
+tests/voice.test.js > selectExemplars > returns nothing when there is no usable input
+tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
+tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks

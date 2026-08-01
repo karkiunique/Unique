@@ -5,6 +5,10 @@ import rateLimit from 'express-rate-limit';
 
 import healthRoutes from './routes/health.js';
 import meRoutes from './routes/me.js';
+import gmailRoutes from './routes/gmail.js';
+import voiceRoutes from './routes/voice.js';
+import devInspectRoutes from './routes/devInspect.js';
+import { devRoutesEnabled } from './lib/devOnly.js';
 import { logger } from './lib/logger.js';
 
 const DEFAULT_APP_URL = 'http://localhost:5173';
@@ -47,6 +51,14 @@ export function createApp() {
 
   app.use('/api', healthRoutes);
   app.use('/api', meRoutes);
+  app.use('/api', gmailRoutes);
+  app.use('/api', voiceRoutes);
+
+  // Dev-only inspection routes. Checked here (not at module scope) so the gate is
+  // re-evaluated per app instance; the router re-checks it on every request too.
+  if (devRoutesEnabled()) {
+    app.use('/api', devInspectRoutes);
+  }
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });

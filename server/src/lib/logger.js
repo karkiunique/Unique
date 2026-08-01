@@ -19,7 +19,8 @@ const ALLOWED_FIELDS = new Set([
   'port',
   'env',
   'reason',
-  'name'
+  'name',
+  'version'
 ]);
 
 const REDACTED = '[redacted]';
