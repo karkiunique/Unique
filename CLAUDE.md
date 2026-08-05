@@ -15,6 +15,7 @@ B2B SaaS web app. Users connect their Gmail, the app builds a "voice profile" fr
 - **Queue:** BullMQ + Redis
 - **Email:** Gmail API via googleapis npm package (OAuth 2.0). No SMTP/IMAP.
 - **AI:** Anthropic API, model `claude-sonnet-4-6`. SDK: `@anthropic-ai/sdk`
+  - **Model IDs must be verified before use.** Never suggest, apply, or swap a model ID from recall, training data, or a bundled reference sheet — check the exact string against https://docs.claude.com first. An unverified ID fails at runtime as a 404, and a plausible-looking wrong string is worse than no suggestion. This pin does not change without a real-account voice-fidelity result showing it falls short.
 - **Lead data:** Apollo.io API (stub behind an interface — API key may not exist yet)
 - **Web research:** Tavily API (stub behind an interface)
 - **Billing:** Stripe (Phase 4, not MVP)
@@ -157,7 +158,7 @@ POST /unsubscribe/:token     -> public route, no auth (token = signed lead id)
 ## Core implementation specs
 
 ### 1. Gmail OAuth + ingestion (gmail.js)
-- Scopes: `gmail.readonly`, `gmail.send`, `gmail.modify` (modify needed for reply watch labels later — start with readonly + send only).
+- Scopes: **`gmail.readonly` + `gmail.send`** — see Decisions, 2026-07-29 and 2026-08-04. `gmail.send` was added when the minimal send slice first exercised it. `gmail.modify` remains deferred and is added only if reply-labeling genuinely needs it. Never request a scope in an earlier phase than the code that exercises it.
 - Store the refresh token in `profiles.gmail_refresh_token_enc`, AES-256-GCM encrypted via `lib/crypto.js` before the write — never plaintext, dev included. Build a `getAuthedClient(userId)` helper that decrypts in memory and refreshes access tokens automatically.
 - Ingestion: fetch the user's last **100** sent emails (`in:sent`) — if they have fewer than 100, use whatever exists; if more, take only the most recent 100. Extract plain-text body, strip quoted replies (lines starting with `>` and everything after `On ... wrote:`), strip signature (heuristic: everything after `--` or last 4 lines if they contain phone/url patterns). Hold cleaned texts in memory only — pass directly to voice builder, never write raw bodies to DB, disk, or logs.
 - **Continuous voice sync (voiceSyncWorker.js):** the voice model improves over time from the user's ongoing real emails. Cron per user (weekly, plus a manual "Re-sync now" button in Settings): fetch sent emails newer than `voice_profiles.last_synced_at` (use Gmail `after:` query), clean them the same way, and re-run the full profile analysis over the rolling window of the most recent 100 sent emails. Merge: new analysis replaces `profile_json` but `learned_corrections[]` from user edits are preserved and re-appended. Bump `version`, set `last_synced_at`. Same ephemeral rules — bodies in memory only, nothing raw persisted.
@@ -223,23 +224,79 @@ Parse defensively (strip ```json fences). Input = rolling window of up to 100 mo
 - **Phase 4:** Send queue + worker + unsubscribe route/page + reply watcher + dashboard.
 - **Phase 5 (post-MVP, do not start unless told):** Apollo/Tavily real integration, Stripe, follow-up sequences, warm-intro network, Outlook.
 
+### Product direction — lead sourcing (recorded 2026-08-04, NOT scoped yet)
+The intended end state is that a user does not upload a CSV at all: the app finds prospects, resolves
+their email, researches them, and sends a personalized email in the user's voice — all in-app.
+Sources, in rough order of how settled they are:
+- **Apollo** — prospect search + email resolution. Already the planned source; `leads.js` is stubbed
+  behind an interface for exactly this.
+- **Tavily** — web research per prospect, feeding `leads.research_json` into generation.
+- **The user's own mailbox** — mine already-ingested sent mail for existing contacts and warm
+  relationships. NEW; not in the schema. Note the Phase 2 ingestion is `gmail.readonly` over `in:sent`
+  and holds nothing in the DB, so this needs its own design and probably its own consent step.
+- **LinkedIn** — NEW, and the one with real constraints: there is no public API for cold outreach or
+  bulk profile access, and scraping violates the User Agreement. Apollo already exposes much of the
+  same firmographic data licensed. Any LinkedIn work needs a legal/ToS answer first, not just an
+  engineering one.
+Do not build any of this until it is scoped into its own phase with schema changes agreed.
+
 ## Security (non-negotiable — this product reads people's email; one leak kills the company)
 - **Encryption:** `TOKEN_ENC_KEY` (32-byte, in env) encrypts Gmail refresh tokens and voice exemplars via AES-256-GCM app-side before any DB write. Build `lib/crypto.js` with `encrypt(text)` / `decrypt(blob)` — random IV per record, auth tag stored with ciphertext. Nothing sensitive is ever stored plaintext, dev included.
 - **Raw email bodies:** exist only in process memory during ingestion/generation. Never in DB (except approved exemplars, encrypted), never on disk, never in logs, never in error messages, never sent to any third party except the Anthropic API for the profile/generation calls themselves.
 - **Logging:** structured logs with an allowlist of fields. Redaction middleware strips anything matching email-body/token patterns before write. No request-body logging on any route that carries email content.
-- **Scopes:** request the minimum Gmail scopes (`gmail.readonly` + `gmail.send` for MVP). Do not add `gmail.modify` until reply-labeling actually needs it.
+- **Scopes:** request the minimum Gmail scopes, and add each one **in the phase that first exercises it — never earlier**. Current set: `gmail.readonly` (ingestion, reply detection) + `gmail.send` (the confirmed single-send slice, added 2026-08-04 when it was first called). `gmail.modify` is still **not** requested — reply detection reads threads under `readonly` and labels nothing. A scope granted before the code that uses it is an unnecessary standing grant on the user's mailbox, and re-consent is cheap.
+- **Nothing sends without explicit human approval.** Any route that puts a message into someone's inbox under the user's name must require an explicit confirmation of the exact rendered content, enforced **server-side**. A UI-only confirmation is bypassable and does not satisfy this.
 - **Disconnect = revoke:** "Disconnect Gmail" calls Google's token revocation endpoint, deletes the encrypted token, deletes exemplars, sets gmail_connected=false. Account deletion cascades everything (schema already cascades).
 - **Transport/API hardening:** helmet, CORS locked to APP_URL only, express-rate-limit on all routes (strict on auth + OAuth callback), 1MB JSON body limit, Supabase JWT verified server-side on every route.
 - **RLS:** enabled on every table, `user_id = auth.uid()` policies. Frontend anon client can only touch auth. All data access goes through the server with the service-role key; service-role key never ships to the client.
 - **Unsubscribe tokens:** HMAC-SHA256 signed (`UNSUB_SECRET`), verified server-side, no DB lookup needed to validate. Unguessable, non-enumerable.
 - **Secrets:** .env never committed; .env.example has placeholders only. Railway env vars for prod. Rotate TOKEN_ENC_KEY support: version byte prefix on ciphertexts.
 - **Dependencies:** pin versions. Before each phase completes, `npm audit --omit=dev --audit-level=high` must pass in both apps — no high or critical vulnerabilities in **production** dependencies. Dev-dependency vulnerabilities do not block a phase: they never ship, and force-fixing them breaks toolchains for no real risk reduction. Record them as known warnings instead. Fix prod vulns with targeted version bumps, never a blanket `npm audit fix --force`; if the only fix is a breaking major bump, raise the tradeoff before applying it.
+- **Exception to exact pinning — security `overrides`:** entries in an `overrides` block use a caret floor (e.g. `^0.1.13`), not an exact pin. An exact pin in an override freezes out future patches *including security patches*, which defeats the purpose of the override. Direct dependencies stay exact-pinned as above; this applies only to `overrides`. Do not "correct" a caret in an `overrides` block to an exact version.
 
 Add to .env.example:
 ```
 TOKEN_ENC_KEY=
 UNSUB_SECRET=
 ```
+
+## Decisions (dated — do not silently revisit)
+
+### 2026-08-04 — `gmail.send` pulled forward for the minimal send/receive slice
+Phase 4's sending capability is **partially pulled forward** so the product can be validated
+end-to-end before Phase 3 exists: compose one email in the user's voice, confirm it, send it, and
+detect replies. `GMAIL_SCOPES` is now `gmail.readonly` + `gmail.send`, and re-consent is required.
+
+This does not supersede the 2026-07-29 rule — it satisfies it. The rule is that a scope is requested
+in the phase that first exercises it; `gmail.users.messages.send` is now called, so the scope is now
+warranted. **`gmail.modify` remains deferred** and is still not requested: reply detection reads
+thread contents under `readonly` and does not label anything.
+
+What is deliberately NOT pulled forward: the BullMQ/Redis send queue, 90–240s send spacing, daily
+send limits, and batch campaign sending. Those stay in Phase 4. This slice sends one
+human-confirmed email at a time.
+
+**Human confirmation is non-negotiable and enforced server-side, not just in the UI.** Nothing is
+sent under the user's name without an explicit approval of the exact rendered subject, body, and
+recipient. A UI-only gate is bypassable; the send route itself rejects an unconfirmed request.
+
+**Reply detection stores nothing.** Sent threads and their reply state are derived from Gmail on
+read, so no schema change was needed and no message content is persisted. Ingestion stays `in:sent`;
+this is not an inbox view.
+
+### 2026-07-29 — Phase 2 requests `gmail.readonly` only; `gmail.send` deferred to the sending phase
+`GMAIL_SCOPES` contains **`gmail.readonly` and nothing else**. Phase 2 covers OAuth, sent-mail ingestion, and voice-profile generation — none of which sends a message — so `gmail.send` was an unnecessary standing grant on the user's mailbox and has been removed.
+
+`gmail.send` is added in **Phase 4**, together with `queue.js` / `sendWorker.js`, i.e. the first code that actually calls `gmail.users.messages.send`. `gmail.modify` remains deferred indefinitely and is added only if reply-labeling genuinely requires it (`replyWatcher.js` can work without it).
+
+Adding a scope later costs one re-consent, which is cheap. Holding an unused send grant over someone's mailbox is not. The general rule now lives in § Security → Scopes: **a scope is requested in the phase that first exercises it, never earlier.** This supersedes the earlier "readonly + send for MVP" wording, which predated the phase split.
+
+### 2026-07-29 — `googleapis` stays pinned at 144.0.0; moderate `uuid` advisory accepted
+`googleapis@144.0.0` carries a **moderate** advisory, `uuid@9.0.1` / GHSA-w5hq-g745-h8pq (missing buffer bounds check in v3/v5/v6 when `buf` is provided), reaching **production** via `gaxios@6.7.1` → `googleapis-common@7.2.0`. This is **accepted, not fixed**. It sits below the `--audit-level=high` gate, so the phase gate passes.
+
+Why not upgrade: `googleapis@173.0.0` clears `uuid` but pulls `gaxios@7.1.3` → `rimraf` → `glob` → `minimatch` → `brace-expansion` into production as **6 high-severity** findings — strictly worse against our own gate. The only remedy for that chain is forcing `brace-expansion@5.0.8`, and both versions currently in the tree (1.1.16 and 2.1.3) are the newest releases in their major lines with no backported patch — so the override would force a breaking major across transitive consumers that expect `^1` / `^2`.
+
+**Revisit when:** googleapis clears the `uuid` advisory without dragging in the `gaxios@7` chain, or `brace-expansion` ships a 1.x/2.x backport. Not before. Do not "fix" this with `npm audit fix --force`.
 
 ## Rules
 - No TypeScript, no Next.js, no ORM (use supabase-js / raw SQL).

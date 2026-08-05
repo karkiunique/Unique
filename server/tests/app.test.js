@@ -15,9 +15,13 @@ vi.mock('../src/lib/logger.js', () => ({
 }));
 
 const { createApp } = await import('../src/app.js');
+const { logger } = await import('../src/lib/logger.js');
 
 beforeEach(() => {
   getUser.mockReset();
+  logger.info.mockClear();
+  logger.warn.mockClear();
+  logger.error.mockClear();
 });
 
 describe('GET /api/health', () => {
@@ -65,6 +69,47 @@ describe('GET /api/me', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ user: { id: 'user-abc', email: 'dev@example.com' } });
+  });
+});
+
+describe('POST /api/gmail/connect', () => {
+  it('401s without a token', async () => {
+    const res = await request(createApp()).post('/api/gmail/connect');
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
+  });
+});
+
+describe('GET /api/gmail/callback', () => {
+  it('is public but 400s without a code and state', async () => {
+    const res = await request(createApp()).get('/api/gmail/callback');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Missing authorization code or state' });
+  });
+
+  it('400s when Google reports an error', async () => {
+    const res = await request(createApp()).get('/api/gmail/callback?error=access_denied');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Google denied the authorization request' });
+  });
+});
+
+describe('voice routes', () => {
+  it('401s on POST /api/voice/generate without a token', async () => {
+    const res = await request(createApp()).post('/api/voice/generate');
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
+  });
+
+  it('401s on GET /api/voice without a token', async () => {
+    const res = await request(createApp()).get('/api/voice');
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
   });
 });
 

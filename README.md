@@ -3,9 +3,10 @@
 AI cold email platform. Users connect their Gmail, the app builds a voice profile from their
 sent mail, then sends cold emails in that voice through their own Gmail account.
 
-**Current state: Phase 1** — repo scaffold, Supabase schema + RLS, Express skeleton with
-Supabase JWT middleware, Supabase auth on the frontend. Gmail, voice profile, campaigns,
-generation and sending are Phase 2+ (see `CLAUDE.md` for the build order and contract).
+**Current state: Phase 2** — Phase 1 scaffold (Supabase schema + RLS, Express skeleton with
+Supabase JWT middleware, Supabase auth on the frontend) plus Gmail OAuth, sent-mail ingestion
+and voice profile generation on the server. Campaigns, generation and sending are Phase 3+
+(see `CLAUDE.md` for the build order and contract).
 
 ```
 /server   Express API (plain JS, ESM, Node 20)
@@ -35,9 +36,10 @@ CLAUDE.md contract: stack, schema, routes, security rules
 1. https://console.cloud.google.com -> create a project.
 2. **APIs & Services -> Library** -> enable the **Gmail API**.
 3. **APIs & Services -> OAuth consent screen**: External, fill in app name / support email.
-   Add scopes `https://www.googleapis.com/auth/gmail.readonly` and
-   `https://www.googleapis.com/auth/gmail.send` (minimum scopes only — do not add
-   `gmail.modify` until reply labelling needs it). Add your dev Google account as a test user.
+   Add **one** scope: `https://www.googleapis.com/auth/gmail.readonly`. Phase 2 only reads
+   sent mail, so nothing broader is registered — no `gmail.send` (that comes with the Phase 4
+   send worker) and no `gmail.modify`. Verify Google has not pre-selected extra scopes, and
+   remove any it did. Add your dev Google account as a test user.
 4. **APIs & Services -> Credentials -> Create credentials -> OAuth client ID**:
    application type **Web application**, authorised redirect URI
    `http://localhost:3000/api/gmail/callback`.
@@ -68,6 +70,17 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"     # U
 
 Smoke test: `curl http://localhost:3000/api/health` returns `{"status":"ok",...}`. Then sign up in
 the web app — the landing view calls `GET /api/me` with your Supabase JWT and shows your user id.
+
+Phase 2 endpoints (all need `Authorization: Bearer <supabase jwt>` except the OAuth callback):
+
+| Route | Does |
+| --- | --- |
+| `POST /api/gmail/connect` | returns the Google consent URL (`{ url }`) |
+| `GET /api/gmail/callback` | Google redirects here; stores the encrypted refresh token, starts ingestion, redirects to `APP_URL/onboarding?connected=1` |
+| `POST /api/voice/generate` | ingests the last 100 sent emails and builds + saves the voice profile |
+| `GET /api/voice` | the current voice profile (404 if there is none yet) |
+
+`ANTHROPIC_API_KEY` and `TOKEN_ENC_KEY` must be set for these to work.
 
 `.env` is git-ignored. Never commit real keys; `.env.example` holds placeholders only.
 

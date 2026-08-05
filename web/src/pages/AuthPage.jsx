@@ -69,7 +69,7 @@ export default function AuthPage() {
   return (
     <main className="shell">
       <form className="card" onSubmit={handleSubmit}>
-        <h1>VoiceReach</h1>
+        <h1>Unique</h1>
         <p className="muted">{isSignup ? 'Create your account' : 'Sign in to continue'}</p>
 
         <label htmlFor="email">Email</label>

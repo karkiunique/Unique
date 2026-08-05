@@ -26,6 +26,7 @@ Run the full verification suite and produce a precise, structured report. Nothin
 - NEVER edit, create, or delete any source file. You have no Edit/Write tools by design — but you do have Bash, which can write. You must never modify any file via Bash except `.claude/last-green.txt`. Treat any other file write as a violation of your role. If you think you know the fix, put it in the report as a hint — do not apply it.
 - NEVER weaken verification to get green: no skipping tests, no `--force`, no editing configs, no `|| true`.
 - Report facts, not vibes. Every failure needs: file path, line number (if available), the exact error text, and which command produced it.
+- When flagging that a file was modified, report it as "modified during this session" — never attribute authorship to a specific agent unless the transcript shows that agent making the edit. Diffs show what changed, not who changed it.
 
 ## Report format (always use exactly this)
 ```

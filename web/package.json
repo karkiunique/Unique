@@ -12,18 +12,25 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "check": "npm run lint && node --check src/lib/api.js && node --check src/lib/supabase.js"
+    "test": "vitest run",
+    "check": "npm run lint && npm run test && node --check src/lib/api.js && node --check src/lib/supabase.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.47.10",
+    "@supabase/supabase-js": "2.109.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@eslint/js": "9.17.0",
+    "@eslint/js": "9.39.5",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "7.0.0",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.3",
     "@vitejs/plugin-react": "4.3.4",
-    "eslint": "9.17.0",
+    "eslint": "9.39.5",
     "eslint-plugin-react": "7.37.2",
-    "vite": "5.4.11"
+    "jsdom": "29.1.1",
+    "vite": "5.4.21",
+    "vitest": "4.1.10"
   }
 }

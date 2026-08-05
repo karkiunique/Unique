@@ -20,6 +20,24 @@ const browserGlobals = {
   alert: 'readonly'
 };
 
+// Test files import describe/it/expect/vi explicitly (vitest `globals: false`),
+// but declaring them keeps the config honest if a future test forgets an import.
+const testGlobals = {
+  describe: 'readonly',
+  it: 'readonly',
+  test: 'readonly',
+  expect: 'readonly',
+  vi: 'readonly',
+  beforeAll: 'readonly',
+  beforeEach: 'readonly',
+  afterAll: 'readonly',
+  afterEach: 'readonly',
+  global: 'readonly',
+  process: 'readonly',
+  HTMLElement: 'readonly',
+  Event: 'readonly'
+};
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'coverage/**']
@@ -53,9 +71,16 @@ export default [
     }
   },
   {
-    files: ['vite.config.js', 'eslint.config.js'],
+    files: ['vite.config.js', 'vitest.config.js', 'eslint.config.js'],
     languageOptions: {
       globals: { process: 'readonly', __dirname: 'readonly' }
+    }
+  },
+  {
+    // Relaxation is scoped to tests only — src rules above are untouched.
+    files: ['tests/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: { ...browserGlobals, ...testGlobals }
     }
   }
 ];

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 
 /**
  * Service-role Supabase client. This key bypasses RLS — it is server-only and must
@@ -22,7 +23,13 @@ export function getSupabaseAdmin() {
       autoRefreshToken: false,
       persistSession: false,
       detectSessionInUrl: false
-    }
+    },
+    // Do NOT remove: we never use Supabase realtime, but createClient constructs a
+    // RealtimeClient eagerly, and realtime-js requires a native `WebSocket` global —
+    // which Node 20 does not have (it lands in Node 22). Without this transport,
+    // createClient THROWS and every authenticated request 500s. Supplying `ws` keeps
+    // us on the Node 20 pinned in CLAUDE.md. Harmless on Node 22+.
+    realtime: { transport: ws }
   });
 
   return client;
