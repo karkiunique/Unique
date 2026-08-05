@@ -12,13 +12,18 @@ import { cleanEmailBody, extractPlainTextBody } from './gmailParse.js';
  * Security rules that this file exists to enforce (CLAUDE.md):
  *  - the refresh token is AES-256-GCM encrypted before it ever reaches the DB;
  *  - raw email bodies live in process memory only — never DB, disk, logs or errors;
- *  - minimum scopes only: gmail.readonly. gmail.send is added in Phase 4 with the
- *    send worker; gmail.modify only if reply-labeling actually needs it.
+ *  - minimum scopes only: gmail.readonly + gmail.send. gmail.modify is still not
+ *    requested — reply detection reads threads read-only and labels nothing.
  */
 
-// Phase 2 reads sent mail and nothing else, so readonly is the whole grant.
-// gmail.send arrives in Phase 4 with sendWorker.js — never earlier.
-export const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
+// readonly covers ingestion and reply detection. gmail.send was added on
+// 2026-08-04 (see CLAUDE.md Decisions) because the confirmed single-send slice
+// now calls gmail.users.messages.send — the phase that first exercises it.
+// gmail.modify stays deferred until reply-labeling genuinely needs it.
+export const GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send'
+];
 
 export const MAX_SENT_EMAILS = 100;
 const STATE_TTL_MS = 10 * 60 * 1000;

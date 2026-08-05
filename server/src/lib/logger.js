@@ -11,6 +11,11 @@ const ALLOWED_FIELDS = new Set([
   'campaignId',
   'leadId',
   'jobId',
+  // Gmail's own opaque ids and the fidelity score: identifiers and a number,
+  // never message content. Nothing here can carry a subject, body or address.
+  'messageId',
+  'threadId',
+  'score',
   'route',
   'method',
   'status',

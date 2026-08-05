@@ -277,16 +277,22 @@ describe('cleanEmailBody', () => {
 });
 
 describe('buildAuthUrl', () => {
-  it('requests gmail.readonly only', () => {
+  it('requests gmail.readonly and gmail.send, never gmail.modify', () => {
     const url = decodeURIComponent(buildAuthUrl('user-1'));
 
     expect(url).toContain('https://www.googleapis.com/auth/gmail.readonly');
-    expect(url).not.toContain('gmail.send');
+    // Added 2026-08-04 with the confirmed single-send slice — the phase that
+    // first calls gmail.users.messages.send. See CLAUDE.md Decisions.
+    expect(url).toContain('https://www.googleapis.com/auth/gmail.send');
+    // Still deferred: reply detection reads threads read-only and labels nothing.
     expect(url).not.toContain('gmail.modify');
     // The full-mailbox scope, pinned so nobody ever widens to it.
     expect(url).not.toContain('mail.google.com');
-    expect(GMAIL_SCOPES).toHaveLength(1);
-    expect(GMAIL_SCOPES).toEqual(['https://www.googleapis.com/auth/gmail.readonly']);
+    expect(GMAIL_SCOPES).toHaveLength(2);
+    expect(GMAIL_SCOPES).toEqual([
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send'
+    ]);
   });
 
   it('asks for offline access with a forced consent prompt', () => {

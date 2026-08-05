@@ -1,3 +1,8 @@
+# VoiceReach last-green test baseline
+# Updated: 2026-08-04 | Node v20.20.2 | branch feat/phase-2
+# Totals: server=255, web=46, combined=301
+
+### SERVER (/server, vitest, 255 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -56,10 +61,23 @@ tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENA
 tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='yes' (exact 'true' match only)
 tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s in production even when ENABLE_DEV_ROUTES is true
 tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s when ENABLE_DEV_ROUTES is unset
+tests/generate.test.js > findBannedPhrases > allows "leverage" and "delve" when the user writes them themselves
+tests/generate.test.js > findBannedPhrases > bans "quick question" as a subject but not inside the body
+tests/generate.test.js > findBannedPhrases > flags every banned phrase in the subject or body
+tests/generate.test.js > generateEmail > appends the unsubscribe line with a token that verifies back to user and recipient
+tests/generate.test.js > generateEmail > decrypts the exemplars into the prompt and never logs them
+tests/generate.test.js > generateEmail > does not regenerate when the fidelity score clears the bar
+tests/generate.test.js > generateEmail > never echoes model output when the response is not JSON
+tests/generate.test.js > generateEmail > regenerates exactly once when a banned phrase is used
+tests/generate.test.js > generateEmail > regenerates once on a low fidelity score and returns the score rather than throwing
+tests/generate.test.js > generateEmail > rejects "quick question" as a subject and regenerates once
+tests/generate.test.js > generateEmail > returns a subject and body, parsing a fenced ```json response
+tests/generate.test.js > generateEmail > still generates when the profile has no exemplars stored
+tests/generate.test.js > generateEmail > validates its input before calling the model
 tests/gmail.test.js > buildAuthUrl > asks for offline access with a forced consent prompt
 tests/gmail.test.js > buildAuthUrl > carries the user id in an opaque state param
 tests/gmail.test.js > buildAuthUrl > rejects a state that was not issued by us
-tests/gmail.test.js > buildAuthUrl > requests gmail.readonly only
+tests/gmail.test.js > buildAuthUrl > requests gmail.readonly and gmail.send, never gmail.modify
 tests/gmail.test.js > cleanEmailBody > collapses runs of blank lines
 tests/gmail.test.js > cleanEmailBody > returns an empty string for empty input
 tests/gmail.test.js > cleanEmailBody > strips signature and quoted reply together
@@ -88,6 +106,54 @@ tests/gmail.test.js > stripQuotedReplies > leaves an unquoted body untouched
 tests/gmail.test.js > stripSignature > drops everything after a '--' delimiter line
 tests/gmail.test.js > stripSignature > drops trailing lines that look like a signature (phone / url)
 tests/gmail.test.js > stripSignature > keeps a body with no signature at all
+tests/gmailParse-signature.test.js > cleanEmailBody — composition > leaves an email with no signature unchanged
+tests/gmailParse-signature.test.js > cleanEmailBody — composition > strips the quoted reply first, then the signature block under the closing
+tests/gmailParse-signature.test.js > stripSignature — a domain inside prose is never a signature > keeps a labelled domain line
+tests/gmailParse-signature.test.js > stripSignature — a domain inside prose is never a signature > keeps a one-line body that mentions a domain
+tests/gmailParse-signature.test.js > stripSignature — a domain inside prose is never a signature > keeps a short sentence that ends in a domain
+tests/gmailParse-signature.test.js > stripSignature — bare domains > handles a multi-part tld
+tests/gmailParse-signature.test.js > stripSignature — bare domains > treats a bare domain on its own line as signature material
+tests/gmailParse-signature.test.js > stripSignature — bare domains > treats a short bare-domain tld like .io as signature material
+tests/gmailParse-signature.test.js > stripSignature — existing paths still work > drops everything after a '--' delimiter line
+tests/gmailParse-signature.test.js > stripSignature — existing paths still work > keeps a body with no signature at all
+tests/gmailParse-signature.test.js > stripSignature — existing paths still work > lets the '--' delimiter win over the closing-line path
+tests/gmailParse-signature.test.js > stripSignature — existing paths still work > still drops trailing phone and schemed-url lines with no closing present
+tests/gmailParse-signature.test.js > stripSignature — never deletes the whole body > keeps a body that is nothing but a '--' delimiter block
+tests/gmailParse-signature.test.js > stripSignature — never deletes the whole body > keeps a body that is nothing but a bare domain
+tests/gmailParse-signature.test.js > stripSignature — never deletes the whole body > keeps a body that is nothing but signature-shaped lines
+tests/gmailParse-signature.test.js > stripSignature — never deletes the whole body > still returns an empty string for a blank body
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat a decimal number as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat a sentence-ending period as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat prose abbreviations as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "10.5" as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "U.S." as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "e.g." as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "etc." as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "friday." as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "i.e." as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > does not treat the standalone token "know.Thanks" as a bare domain
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > leaves a domain mentioned inside a prose sentence alone
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > leaves a short line containing e.g. tuesday alone
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > leaves a short line containing etc. tuesday alone
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > leaves a short line containing i.e. tomorrow alone
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > leaves a short line containing ok, e.g. friday alone
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (abbreviations and numbers) > leaves a short line containing the U.S. team alone
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (closing-word false positives) > does not strip a trailing block longer than 4 lines
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (closing-word false positives) > does not treat a closing word followed by lowercase prose as a closing
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (closing-word false positives) > does not truncate when "Thanks" opens a sentence mid-body
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (closing-word false positives) > does not truncate when a real closing is followed by real sentences
+tests/gmailParse-signature.test.js > stripSignature — over-strip guards (closing-word false positives) > never strips a closing that is the last line
+tests/gmailParse-signature.test.js > stripSignature — postscripts are prose, never signature > keeps a P.S. sitting below the sign-off
+tests/gmailParse-signature.test.js > stripSignature — postscripts are prose, never signature > keeps a trailing "PS one more thing" line
+tests/gmailParse-signature.test.js > stripSignature — postscripts are prose, never signature > keeps a trailing "PS: one more thing" line
+tests/gmailParse-signature.test.js > stripSignature — postscripts are prose, never signature > keeps a trailing "p.s. one more thing" line
+tests/gmailParse-signature.test.js > stripSignature — postscripts are prose, never signature > refuses the cut entirely when a P.S. follows a real signature block
+tests/gmailParse-signature.test.js > stripSignature — short prose under a closing is not a signature block > keeps a short capitalised sentence under a one-word closing
+tests/gmailParse-signature.test.js > stripSignature — short prose under a closing is not a signature block > keeps several short punchy sentences under a closing-shaped opener
+tests/gmailParse-signature.test.js > stripSignature — signature block under a closing line > does not cut a lone bare name under a closing — shape alone is not evidence
+tests/gmailParse-signature.test.js > stripSignature — signature block under a closing line > drops a block ending in a bare name when a title line sits above it
+tests/gmailParse-signature.test.js > stripSignature — signature block under a closing line > drops the name/title/company/url block but KEEPS the closing line
+tests/gmailParse-signature.test.js > stripSignature — signature block under a closing line > handles a multi-word closing plus a title and phone block
 tests/httpError.test.js > httpError > builds an Error carrying a status and an expose flag
 tests/httpError.test.js > safeMessage > hides messages from plain errors
 tests/httpError.test.js > safeMessage > hides messages on 5xx even when they are ours
@@ -101,6 +167,58 @@ tests/logger.test.js > sanitizeMeta > redacts non-scalar values
 tests/logger.test.js > sanitizeMeta > redacts token-shaped values even on allowlisted fields
 tests/logger.test.js > sanitizeMeta > returns an empty object for missing or non-object meta
 tests/logger.test.js > sanitizeMeta > truncates long strings
+tests/send.test.js > POST /api/send — the confirmation gate > 400s for other truthy stand-ins (1, "yes"), and never calls Gmail send
+tests/send.test.js > POST /api/send — the confirmation gate > 400s when confirmed is false, and never calls Gmail send
+tests/send.test.js > POST /api/send — the confirmation gate > 400s when confirmed is omitted, and never calls Gmail send
+tests/send.test.js > POST /api/send — the confirmation gate > 400s when confirmed is the string 'true' — strict boolean only
+tests/send.test.js > POST /api/send — the confirmation gate > 400s with {error} for a missing recipient, subject or body
+tests/send.test.js > POST /api/send — the confirmation gate > 401s without a token
+tests/send.test.js > POST /api/send — the confirmation gate > sends and returns the gmail ids when confirmed is exactly true
+tests/send.test.js > POST /api/send — the confirmation gate > sends exactly the subject and body it was given, unmodified
+tests/send.test.js > POST /api/send/generate > 400s without a recipient or a goal, and never drafts
+tests/send.test.js > POST /api/send/generate > 401s without a token
+tests/send.test.js > POST /api/send/generate > returns the draft and NEVER calls gmail.users.messages.send
+tests/send.test.js > buildMimeMessage > RFC 2047 encodes a non-ASCII subject
+tests/send.test.js > buildMimeMessage > leaves a plain ASCII subject unencoded
+tests/send.test.js > buildMimeMessage > rejects a message with a missing field
+tests/send.test.js > buildMimeMessage > strips CR/LF out of header values so headers cannot be injected
+tests/send.test.js > buildMimeMessage > strips CR/LF out of the recipient header so To cannot inject either
+tests/send.test.js > buildMimeMessage > writes the required RFC 2822 headers followed by the body
+tests/send.test.js > send logging > never logs the recipient, subject or body
+tests/send.test.js > sendEmail > base64url-encodes the MIME message and calls gmail.users.messages.send
+tests/send.test.js > sendEmail > never echoes Gmail's own error message
+tests/send.test.js > sendEmail > reads the sender address from gmail.users.getProfile
+tests/send.test.js > sendEmail > rejects an implausible recipient address with 400 before calling Gmail
+tests/send.test.js > sendEmail > sets gmail_connected=false when Gmail answers 401 (auth revoked)
+tests/supabaseClient.test.js > getSupabaseAdmin > constructs a client without throwing
+tests/supabaseClient.test.js > getSupabaseAdmin > memoizes the client across calls
+tests/supabaseClient.test.js > getSupabaseAdmin > returns a real client exposing .auth and .from
+tests/supabaseClient.test.js > getSupabaseAdmin > throws a clear error when SUPABASE_SERVICE_ROLE_KEY is missing
+tests/supabaseClient.test.js > getSupabaseAdmin > throws a clear error when SUPABASE_URL is missing
+tests/supabaseClient.test.js > resetSupabaseAdmin > clears the memo so a later call builds a fresh client
+tests/threads.test.js > extractAddress > pulls the address out of a display-name header
+tests/threads.test.js > listSentThreads — access shape > logs counts only, never subjects or recipients
+tests/threads.test.js > listSentThreads — access shape > persists nothing — no insert, update, upsert or delete
+tests/threads.test.js > listSentThreads — access shape > queries in:sent only and never fetches message bodies
+tests/threads.test.js > listSentThreads — access shape > requires a userId
+tests/threads.test.js > listSentThreads — access shape > returns an empty list when nothing has been sent
+tests/threads.test.js > listSentThreads — reply detection > does NOT mark a thread replied when every message is from the user
+tests/threads.test.js > listSentThreads — reply detection > marks a single-message thread as not replied
+tests/threads.test.js > listSentThreads — reply detection > marks a thread replied when a message is NOT from the user
+tests/threads.test.js > listSentThreads — reply detection > reports the send time of the first message in the thread
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 400s on a token signed with a different secret
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 400s on an invalid token and writes nothing
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 400s when the signed payload is missing the user id or email
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 500s with a generic {error} when the write fails
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > inserts the user id and email carried by the token, on conflict do nothing
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > is public — it records the unsubscribe with no Authorization header
+tests/unsubscribe.test.js > POST /api/unsubscribe/:token > never logs the unsubscribed address
+tests/unsubscribe.test.js > signToken / verifyToken > produces a URL-safe token that does not expose the payload verbatim
+tests/unsubscribe.test.js > signToken / verifyToken > rejects a tampered payload
+tests/unsubscribe.test.js > signToken / verifyToken > rejects a tampered signature
+tests/unsubscribe.test.js > signToken / verifyToken > rejects a token signed with a different secret
+tests/unsubscribe.test.js > signToken / verifyToken > rejects malformed tokens
+tests/unsubscribe.test.js > signToken / verifyToken > round-trips a payload
 tests/voice.test.js > buildVoiceProfile > caps the prompt at the 80k char window, keeping the most recent emails
 tests/voice.test.js > buildVoiceProfile > makes exactly one Anthropic call with the pinned model
 tests/voice.test.js > buildVoiceProfile > rejects an empty inbox without calling the model
@@ -140,3 +258,51 @@ tests/voice.test.js > selectExemplars > never returns more than 8 anchors
 tests/voice.test.js > selectExemplars > returns nothing when there is no usable input
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
+
+### WEB (/web, vitest + jsdom, 46 tests) ###
+tests/App.test.jsx > App > renders AuthPage when there is no session
+tests/App.test.jsx > App > renders OnboardingPage when there is a session
+tests/ComposePage.test.jsx > ComposePage — generating > calls /send/generate and fills the subject and body fields
+tests/ComposePage.test.jsx > ComposePage — generating > does not warn when the fidelity score clears the bar
+tests/ComposePage.test.jsx > ComposePage — generating > renders a visible warning when the fidelity score is under 80
+tests/ComposePage.test.jsx > ComposePage — generating > renders the server error when drafting fails
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > Cancel on the confirm step returns to editing without sending
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > disables "Review and send" until recipient, subject and body are filled
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > lets a hand-written email reach the confirm step without generating
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > never calls /send itself — only the confirm dialog does
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > Cancel sends nothing and hands control back to the caller
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > disables the send button while in flight so it cannot double-send
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > renders the server error message and re-enables the button
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > does NOT call /send on render — only after the explicit Send click
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > includes confirmed: true in the payload
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > renders the exact To, Subject and Body, including the unsubscribe line
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > sends the subject and body byte-for-byte as displayed
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > shows the messageId and threadId once the send resolves
+tests/CorpusViewer.test.jsx > CorpusViewer — raw text > refetches with includeRaw=1 when the checkbox is ticked
+tests/CorpusViewer.test.jsx > CorpusViewer — raw text > shows the body only after expanding the row
+tests/CorpusViewer.test.jsx > CorpusViewer — summary > renders the summary numbers
+tests/CorpusViewer.test.jsx > CorpusViewer — summary > shows the suspect count
+tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > does not flag a clean email
+tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags HTML residue in the cleaned text
+tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags a long email where nothing was stripped
+tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags an email long enough to be a whole thread
+tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags an email where no quoted reply was stripped
+tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags undecoded quoted-printable markers
+tests/CorpusViewer.test.jsx > CorpusViewer — visibility > renders nothing at all when the dev route 404s
+tests/OnboardingPage.test.jsx > OnboardingPage — connected > disables the build button while the request is in flight
+tests/OnboardingPage.test.jsx > OnboardingPage — connected > posts /voice/generate and shows the building state on click
+tests/OnboardingPage.test.jsx > OnboardingPage — connected > renders the profile summary once the build resolves
+tests/OnboardingPage.test.jsx > OnboardingPage — connected > shows the connected state and does NOT auto-generate the profile
+tests/OnboardingPage.test.jsx > OnboardingPage — disconnected > posts /gmail/connect and navigates to the returned consent url
+tests/OnboardingPage.test.jsx > OnboardingPage — disconnected > renders the Connect Gmail button when GET /voice 404s
+tests/OnboardingPage.test.jsx > OnboardingPage — errors > renders a failed build as an error and keeps the build button
+tests/OnboardingPage.test.jsx > OnboardingPage — errors > renders the server message in an .error element with a retry
+tests/OnboardingPage.test.jsx > OnboardingPage — ready > does not crash on a malformed or partial profile_json
+tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders a null profile_json without crashing
+tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the profile summary including never_does entries
+tests/ThreadsPage.test.jsx > ThreadsPage > loads sent threads on mount
+tests/ThreadsPage.test.jsx > ThreadsPage > makes plain that this is reply detection on sent mail, not an inbox
+tests/ThreadsPage.test.jsx > ThreadsPage > polls every 30 seconds and clears the interval on unmount
+tests/ThreadsPage.test.jsx > ThreadsPage > renders an empty state when nothing has been sent
+tests/ThreadsPage.test.jsx > ThreadsPage > renders the server message when the load fails
+tests/ThreadsPage.test.jsx > ThreadsPage > shows a REPLIED badge only on threads that were replied to

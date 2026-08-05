@@ -1,6 +1,6 @@
 import { getAnthropic, getModel } from '../lib/anthropic.js';
 import { getSupabaseAdmin } from '../lib/supabase.js';
-import { encrypt } from '../lib/crypto.js';
+import { encrypt, decrypt } from '../lib/crypto.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { fetchSentEmails } from './gmail.js';
@@ -232,11 +232,9 @@ export async function saveVoiceProfile(userId, profileJson, exemplars, sourceCou
   return { ...data, has_exemplars: list.length > 0 };
 }
 
-/** Current profile row for a user. Exemplars are never returned decrypted. */
-export async function getVoiceProfile(userId) {
-  if (typeof userId !== 'string' || userId === '') {
-    throw httpError(400, 'A userId is required');
-  }
+/** The newest profile row for a user, exemplars still encrypted. */
+async function fetchLatestProfileRow(userId) {
+  if (typeof userId !== 'string' || userId === '') throw httpError(400, 'A userId is required');
 
   const { data, error } = await getSupabaseAdmin()
     .from('voice_profiles')
@@ -247,11 +245,39 @@ export async function getVoiceProfile(userId) {
     .maybeSingle();
 
   if (error) throw httpError(500, 'Could not load the voice profile');
+
+  return data ?? null;
+}
+
+/** Current profile row for a user. Exemplars are never returned decrypted. */
+export async function getVoiceProfile(userId) {
+  const data = await fetchLatestProfileRow(userId);
   if (!data) return null;
 
   const { exemplars_enc: exemplarsEnc, ...profile } = data;
 
   return { ...profile, has_exemplars: Boolean(exemplarsEnc) };
+}
+
+/**
+ * Profile JSON plus the DECRYPTED exemplars, for few-shot anchoring (CLAUDE.md §3).
+ * Server-side only: the plaintext anchors live in memory for one request, are
+ * never returned to a client and are never logged.
+ */
+export async function loadProfileWithExemplars(userId) {
+  const data = await fetchLatestProfileRow(userId);
+  if (!data) throw httpError(400, 'No voice profile yet — build one before generating');
+
+  let exemplars = [];
+  try {
+    const parsed = JSON.parse(decrypt(data.exemplars_enc ?? ''));
+    if (Array.isArray(parsed)) exemplars = parsed.filter((item) => typeof item === 'string');
+  } catch {
+    // No anchors stored, or a blob this key cannot read — the profile alone still works.
+    exemplars = [];
+  }
+
+  return { profileJson: data.profile_json ?? {}, exemplars };
 }
 
 /** Ingest -> analyse -> save. Used by POST /voice/generate and the OAuth callback. */

@@ -107,6 +107,183 @@ code {
   font-size: 13px;
 }
 
+h3 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Onboarding needs more room than the auth card. */
+.shell.top {
+  align-items: flex-start;
+}
+
+.card.wide {
+  max-width: 760px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.row {
+  border: 1px solid #242833;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row.suspect {
+  border-color: #5c2a2a;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #10131a;
+  border: 1px solid #2c313d;
+  color: var(--muted);
+}
+
+.badge.on {
+  color: var(--ok);
+  border-color: #25603c;
+}
+
+.badge.off {
+  color: var(--error);
+  border-color: #5c2a2a;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #10131a;
+  border: 1px solid #2c313d;
+}
+
+.chip.danger,
+.chip.suspect-chip {
+  color: var(--error);
+  border-color: #5c2a2a;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.body-text {
+  white-space: pre-wrap;
+  font-size: 13px;
+  background: #10131a;
+  border: 1px solid #2c313d;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+button.small {
+  margin-top: 0;
+  padding: 4px 10px;
+  font-size: 13px;
+  align-self: flex-start;
+}
+
+textarea {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #2c313d;
+  background: #10131a;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.topnav {
+  display: flex;
+  gap: 14px;
+  padding: 12px 24px 0;
+  justify-content: center;
+}
+
+.confirm {
+  border: 1px solid #2c313d;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* The confirmation must show the whole message: never clip it. */
+.confirm-body {
+  max-height: none;
+  overflow: visible;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .muted {
   color: var(--muted);
   margin: 0;
