@@ -1,4 +1,4 @@
-# VoiceReach
+# Unique
 
 AI cold email platform. Users connect their Gmail, the app builds a voice profile from their
 sent mail, then sends cold emails in that voice through their own Gmail account.
