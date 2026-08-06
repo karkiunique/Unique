@@ -1,8 +1,15 @@
 import { useState } from 'react';
 
+import Icon from '../components/Icon.jsx';
 import { getSupabase } from '../lib/supabase.js';
 
 const MIN_PASSWORD_LENGTH = 8;
+
+const STEPS = [
+  ['01', 'Connect Gmail, read-only'],
+  ['02', 'We take down how you write'],
+  ['03', 'You approve every word that ships']
+];
 
 export default function AuthPage() {
   const [mode, setMode] = useState('login');
@@ -67,44 +74,92 @@ export default function AuthPage() {
   }
 
   return (
-    <main className="shell">
-      <form className="card" onSubmit={handleSubmit}>
-        <h1>Unique</h1>
-        <p className="muted">{isSignup ? 'Create your account' : 'Sign in to continue'}</p>
+    <main className="auth">
+      <section className="auth-left">
+        <div className="auth-brand">
+          <div className="wordmark">
+            Unique<span className="dot">.</span>
+          </div>
+          <div className="kicker">Est. at your desk</div>
+        </div>
 
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@company.com"
-          required
-        />
+        <div className="auth-hero">
+          <div className="kicker red">No. 001 — The voice issue</div>
+          <h1>
+            Cold emails that sound like <em>you</em> wrote them.
+          </h1>
+          <p className="lead auth-lead">
+            Because you did. Unique learns your voice from your sent mail, then drafts outreach in
+            your hand — sent from your own inbox, never without your say-so.
+          </p>
+          <div className="auth-steps">
+            {STEPS.map(([numeral, text]) => (
+              <div className="auth-step" key={numeral}>
+                <span className="n">{numeral}</span>
+                <span className="t">{text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
 
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
-          type="password"
-          autoComplete={isSignup ? 'new-password' : 'current-password'}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
-          required
-        />
+        <div className="kicker">Read-only · Never stored · Human-confirmed</div>
+      </section>
 
-        {error ? <p className="error">{error}</p> : null}
-        {notice ? <p className="notice">{notice}</p> : null}
+      <section className="auth-right">
+        <div className="auth-slip">
+          <div className="kicker red">{isSignup ? 'Open an account' : 'Return to your desk'}</div>
+          <h2>{isSignup ? 'Sign up' : 'Sign in'}</h2>
+          <div className="hr red auth-rule" />
 
-        <button type="submit" disabled={busy}>
-          {busy ? 'Working…' : isSignup ? 'Sign up' : 'Sign in'}
-        </button>
+          <form onSubmit={handleSubmit}>
+            <div className="rfield">
+              <label htmlFor="email">Email address</label>
+              <input
+                id="email"
+                className="rinput"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                required
+              />
+            </div>
 
-        <button type="button" className="link" onClick={switchMode} disabled={busy}>
-          {isSignup ? 'Already have an account? Sign in' : 'No account? Sign up'}
-        </button>
-      </form>
+            <div className="rfield">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                className="rinput"
+                type="password"
+                autoComplete={isSignup ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="at least eight characters"
+                required
+              />
+            </div>
+
+            {error ? (
+              <p className="msg error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {notice ? <p className="msg notice">{notice}</p> : null}
+
+            <button className="btn red block auth-submit" type="submit" disabled={busy}>
+              {busy ? 'Working…' : isSignup ? 'Create account' : 'Enter'}
+              <Icon name={busy ? 'loader' : 'arrow-right'} />
+            </button>
+          </form>
+
+          <div className="auth-toggle">
+            <button type="button" className="linkbtn" onClick={switchMode} disabled={busy}>
+              {isSignup ? 'Already have an account →' : 'No account yet →'}
+            </button>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

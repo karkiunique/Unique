@@ -1,15 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-const { apiGet, getSession, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
+const { apiGet, apiPost, getSession, onAuthStateChange, unsubscribe } = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPost: vi.fn(),
   getSession: vi.fn(),
   onAuthStateChange: vi.fn(),
   unsubscribe: vi.fn()
 }));
 
 vi.mock('../src/lib/api.js', () => ({
-  api: { get: apiGet, post: vi.fn(), patch: vi.fn() },
+  api: { get: apiGet, post: apiPost, patch: vi.fn() },
   apiFetch: vi.fn()
 }));
 
@@ -42,7 +43,14 @@ function apiError(message, status) {
 
 beforeEach(() => {
   apiGet.mockImplementation(() => Promise.reject(apiError('No voice profile yet', 404)));
+  apiPost.mockResolvedValue({ status: 'unsubscribed' });
   onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe } } });
+  getSession.mockReset();
+  window.history.pushState({}, '', '/');
+});
+
+afterEach(() => {
+  window.history.pushState({}, '', '/');
 });
 
 describe('App', () => {
@@ -51,11 +59,12 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Sign in to continue')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(await screen.findByText('Return to your desk')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enter' })).toBeInTheDocument();
   });
 
-  it('renders OnboardingPage when there is a session', async () => {
+  it('renders OnboardingPage inside the shell when there is a session', async () => {
     getSession.mockResolvedValue({
       data: { session: { user: { email: 'dev@example.com' } } }
     });
@@ -64,5 +73,25 @@ describe('App', () => {
 
     expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
     expect(screen.getByText('Signed in as dev@example.com')).toBeInTheDocument();
+    // The masthead names the desk this app belongs to.
+    expect(screen.getAllByText('dev@example.com').length).toBeGreaterThan(0);
+    expect(screen.getByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Voice profile/ })).toBeInTheDocument();
+  });
+
+  it('renders UnsubscribePage on /u/<token> with no session, and never AuthPage', async () => {
+    getSession.mockResolvedValue({ data: { session: null } });
+    window.history.pushState({}, '', '/u/token-abc.sig');
+
+    render(<App />);
+
+    expect(await screen.findByText('You are off this list.')).toBeInTheDocument();
+    expect(apiPost).toHaveBeenCalledWith('/unsubscribe/token-abc.sig', undefined, { auth: false });
+
+    // The stranger following this link is not a user: no auth, no app chrome.
+    expect(getSession).not.toHaveBeenCalled();
+    expect(screen.queryByText('Return to your desk')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enter' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   });
 });

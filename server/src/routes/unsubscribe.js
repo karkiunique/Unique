@@ -19,11 +19,34 @@ const unsubscribeLimiter = rateLimit({
 });
 
 /**
+ * Whether this address is already on the list.
+ *
+ * The public page reads differently for "removed just now" and "removed
+ * earlier", and the second must not be dressed up as an error, so the two are
+ * distinguished before the write rather than inferred from it.
+ */
+async function alreadyOnList(userId, email) {
+  const { data, error } = await getSupabaseAdmin()
+    .from('unsubscribes')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error) throw new Error('lookup failed');
+
+  return Boolean(data);
+}
+
+/**
  * POST /api/unsubscribe/:token — PUBLIC, no auth (CLAUDE.md).
  *
  * Trust comes entirely from the HMAC: the token carries the user id and the
- * recipient address, so a valid signature is enough to write the row without a
- * lookup, and an attacker cannot enumerate recipients by guessing.
+ * recipient address, so a valid signature is enough to record the row, and an
+ * attacker cannot enumerate recipients by guessing.
+ *
+ * Answers with one of three outcomes — 'unsubscribed', 'already', or a 400 —
+ * because the public page has to render each of them differently.
  */
 router.post('/unsubscribe/:token', unsubscribeLimiter, async (req, res) => {
   let payload;
@@ -42,7 +65,13 @@ router.post('/unsubscribe/:token', unsubscribeLimiter, async (req, res) => {
   }
 
   try {
-    // on conflict do nothing: unsubscribing twice is a success, not an error.
+    if (await alreadyOnList(userId, email)) {
+      // The address is the third party's own — it never reaches a log line.
+      logger.info('unsubscribe_repeat', { userId });
+      return res.status(200).json({ status: 'already' });
+    }
+
+    // on conflict do nothing: a second click, or a race with one, is still a success.
     const { error } = await getSupabaseAdmin()
       .from('unsubscribes')
       .upsert({ user_id: userId, email }, { onConflict: 'user_id,email', ignoreDuplicates: true });
@@ -53,10 +82,9 @@ router.post('/unsubscribe/:token', unsubscribeLimiter, async (req, res) => {
     return res.status(500).json({ error: 'Could not record the unsubscribe' });
   }
 
-  // The address is the third party's own — it never reaches a log line.
   logger.info('unsubscribed', { userId });
 
-  return res.status(200).json({ unsubscribed: true });
+  return res.status(200).json({ status: 'unsubscribed' });
 });
 
 export default router;

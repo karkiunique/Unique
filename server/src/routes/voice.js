@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { requireAuth } from '../middleware/auth.js';
 import { generateVoiceProfileForUser, getVoiceProfile } from '../services/voice.js';
+import { summarizeCorpus } from '../services/corpusSummary.js';
 import { safeMessage } from '../lib/httpError.js';
 import { logger } from '../lib/logger.js';
 
@@ -24,6 +25,28 @@ router.post('/voice/generate', requireAuth, async (req, res) => {
     return res.status(200).json({ profile });
   } catch (err) {
     return fail(res, 'voice_generate_failed', req.user.id, err, 'Could not build the voice profile');
+  }
+});
+
+/**
+ * GET /api/voice/corpus-summary — how much sent mail a profile would be built from.
+ *
+ * COUNTS ONLY. No bodies, no excerpts, no subjects, no recipients, at any level.
+ * The corpus itself is only ever inspectable through the dev-gated ingest-preview
+ * route; this is what production is allowed to see.
+ */
+router.get('/voice/corpus-summary', requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+
+  try {
+    const summary = await summarizeCorpus(req.user.id);
+
+    // Counts only — nothing derived from message content.
+    logger.info('voice_corpus_summarized', { userId: req.user.id, count: summary.messageCount });
+
+    return res.status(200).json(summary);
+  } catch (err) {
+    return fail(res, 'voice_corpus_summary_failed', req.user.id, err, 'Could not read your sent mail');
   }
 });
 

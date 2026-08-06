@@ -35,6 +35,7 @@ const testGlobals = {
   global: 'readonly',
   process: 'readonly',
   HTMLElement: 'readonly',
+  HTMLTextAreaElement: 'readonly',
   Event: 'readonly'
 };
 

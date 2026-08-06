@@ -3,6 +3,7 @@ import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { signToken } from '../lib/unsubscribe.js';
 import { loadProfileWithExemplars, parseProfileJson } from './voice.js';
+import { findMissingSignoff } from './signoff.js';
 import {
   DRAFT_SYSTEM_PROMPT,
   buildDraftUserPrompt,
@@ -14,7 +15,8 @@ import {
  * Single-email generation in the user's voice (CLAUDE.md §3).
  *
  * Two guardrails, one retry each:
- *  - banned phrases, checked in code (deterministic, no model round trip);
+ *  - deterministic checks in code, no model round trip: banned phrases, and a
+ *    body that does not sign off as the user. They share the one retry;
  *  - a fidelity score from a second lightweight model call.
  * Neither ever blocks: a low score is SURFACED to the user, not thrown, because
  * the human reviews and confirms every send anyway.
@@ -183,22 +185,28 @@ export async function generateEmail(userId, input = {}) {
   };
 
   const ownText = ownWords(profileJson, exemplars);
+  // Both code-side guardrails, in one list: they share the single retry rather
+  // than each buying the user another round trip.
+  const checkGuardrails = (candidate) => [
+    ...findBannedPhrases(candidate, ownText),
+    ...findMissingSignoff(candidate, profileJson)
+  ];
 
   let draft = await draftOnce(context, []);
-  let banned = findBannedPhrases(draft, ownText);
-  if (banned.length > 0) {
-    draft = await draftOnce(context, banned);
-    banned = findBannedPhrases(draft, ownText);
+  let guardrail = checkGuardrails(draft);
+  if (guardrail.length > 0) {
+    draft = await draftOnce(context, guardrail);
+    guardrail = checkGuardrails(draft);
   }
 
   let fidelity = await scoreFidelity(context, draft);
   if (fidelity.score !== null && fidelity.score < MIN_FIDELITY_SCORE) {
-    draft = await draftOnce(context, [...banned, ...fidelity.violations]);
-    banned = findBannedPhrases(draft, ownText);
+    draft = await draftOnce(context, [...guardrail, ...fidelity.violations]);
+    guardrail = checkGuardrails(draft);
     fidelity = await scoreFidelity(context, draft);
   }
 
-  const violations = [...banned, ...fidelity.violations];
+  const violations = [...guardrail, ...fidelity.violations];
 
   // Counts and the score only — no subject, no body, no exemplar text.
   logger.info('email_generated', { userId, score: fidelity.score, count: violations.length });

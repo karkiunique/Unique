@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 
 import { requireAuth } from '../middleware/auth.js';
 import { generateEmail } from '../services/generate.js';
 import { sendEmail } from '../services/send.js';
+import { verifyRecipient } from '../services/recipientCheck.js';
 import { listSentThreads } from '../services/threads.js';
 import { safeMessage } from '../lib/httpError.js';
 import { logger } from '../lib/logger.js';
@@ -11,11 +13,30 @@ const router = Router();
 
 const THREAD_LIMIT = 25;
 
-/** Only messages we wrote are echoed back — SDK errors carry a status too. */
+/** Each call costs a DNS lookup, so this sits well below the global limit. */
+const verifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down' }
+});
+
+/**
+ * Only messages we wrote are echoed back — SDK errors carry a status too.
+ *
+ * `action` is the recovery the client should offer, as a stable code rather than
+ * a phrase to match on: a failed send that needs re-consent is useless to the
+ * user unless the UI can put the button in front of them.
+ */
 function fail(res, event, userId, err, fallbackMessage) {
   const status = Number(err?.status) || 500;
   logger.error(event, { userId, status, name: err?.name });
-  return res.status(status).json({ error: safeMessage(err, fallbackMessage) });
+
+  const payload = { error: safeMessage(err, fallbackMessage) };
+  if (err?.expose === true && typeof err.action === 'string') payload.action = err.action;
+
+  return res.status(status).json(payload);
 }
 
 function text(value) {
@@ -92,6 +113,39 @@ router.post('/send', requireAuth, async (req, res) => {
     return res.status(200).json(result);
   } catch (err) {
     return fail(res, 'send_failed', req.user.id, err, 'Could not send the email');
+  }
+});
+
+/**
+ * POST /api/send/verify-recipient — advisory deliverability check on one address.
+ *
+ * POST, not GET, so the address travels in the body: a query string lands in
+ * access logs, proxy history and the browser's own history, and this one names
+ * who the user is contacting.
+ *
+ * Advisory only. It persists nothing, touches no table, and never blocks a send —
+ * the answer goes back to the caller and the human decides (CLAUDE.md Decisions,
+ * 2026-08-05: MX is a risk signal, bounce detection is the real one).
+ *
+ * The log line carries {userId, status} and nothing else. Not the address, and
+ * not the domain either: the domain still reveals who is being contacted, and
+ * the logger allowlist has no field for it.
+ */
+router.post('/send/verify-recipient', verifyLimiter, requireAuth, async (req, res) => {
+  const to = text(bodyOf(req).to);
+
+  if (to === '') return res.status(400).json({ error: 'A recipient email address is required' });
+
+  // A per-recipient verdict must not be cached by a browser or an intermediary.
+  res.set('Cache-Control', 'no-store');
+
+  try {
+    const result = await verifyRecipient(to);
+    logger.info('recipient_verified', { userId: req.user.id, status: result.status });
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return fail(res, 'recipient_verify_failed', req.user.id, err, 'Could not check the address');
   }
 });
 

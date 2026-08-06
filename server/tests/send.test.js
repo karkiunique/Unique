@@ -32,6 +32,8 @@ const { getUser, supabaseFrom, generateEmail } = vi.hoisted(() => ({
   generateEmail: vi.fn()
 }));
 
+const { verifyRecipient } = vi.hoisted(() => ({ verifyRecipient: vi.fn() }));
+
 // No real Google calls in tests.
 vi.mock('googleapis', () => ({
   google: {
@@ -54,8 +56,14 @@ vi.mock('../src/lib/logger.js', () => ({
 // so /send/generate can be exercised without a model call.
 vi.mock('../src/services/generate.js', () => ({ generateEmail }));
 
+// Same reasoning for DNS: the route is the subject here, and the resolver is
+// exercised in recipientCheck.test.js.
+vi.mock('../src/services/recipientCheck.js', () => ({ verifyRecipient }));
+
 const { createApp } = await import('../src/app.js');
-const { buildMimeMessage, sendEmail } = await import('../src/services/send.js');
+const { buildMimeMessage, sendEmail, classifyGmailFailure, GMAIL_FAILURE } = await import(
+  '../src/services/send.js'
+);
 const { encrypt } = await import('../src/lib/crypto.js');
 const { logger } = await import('../src/lib/logger.js');
 
@@ -313,6 +321,195 @@ describe('sendEmail', () => {
   });
 });
 
+/**
+ * 403 is overloaded. A token granted before gmail.send existed and a transient
+ * rate limit both arrive as 403, and only the first one warrants clearing the
+ * connection. Treating them the same disconnects healthy accounts.
+ */
+describe('classifyGmailFailure', () => {
+  function gmailError(status, extra = {}) {
+    const err = new Error('boom');
+    err.status = status;
+    return Object.assign(err, extra);
+  }
+
+  it('reads 401 as a revoked grant', () => {
+    expect(classifyGmailFailure(gmailError(401))).toBe(GMAIL_FAILURE.REVOKED);
+  });
+
+  it('reads a 403 insufficientPermissions reason as a scope problem', () => {
+    const err = gmailError(403, { errors: [{ reason: 'insufficientPermissions' }] });
+
+    expect(classifyGmailFailure(err)).toBe(GMAIL_FAILURE.INSUFFICIENT_SCOPE);
+  });
+
+  it('reads ACCESS_TOKEN_SCOPE_INSUFFICIENT out of the nested response shape', () => {
+    const err = gmailError(403, {
+      response: {
+        data: { error: { details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }
+      }
+    });
+
+    expect(classifyGmailFailure(err)).toBe(GMAIL_FAILURE.INSUFFICIENT_SCOPE);
+  });
+
+  it('reads every rate-limit reason as rate limiting, not revocation', () => {
+    for (const reason of ['rateLimitExceeded', 'userRateLimitExceeded', 'dailyLimitExceeded']) {
+      const err = gmailError(403, {
+        response: { data: { error: { errors: [{ reason }] } } }
+      });
+
+      expect(classifyGmailFailure(err)).toBe(GMAIL_FAILURE.RATE_LIMITED);
+    }
+  });
+
+  it('falls back to the message text only for narrow, specific wording', () => {
+    const scoped = gmailError(403);
+    scoped.message = 'Request had insufficient authentication scopes.';
+
+    expect(classifyGmailFailure(scoped)).toBe(GMAIL_FAILURE.INSUFFICIENT_SCOPE);
+
+    const vague = gmailError(403);
+    vague.message = 'Permission denied.';
+
+    expect(classifyGmailFailure(vague)).toBe(GMAIL_FAILURE.OTHER);
+  });
+
+  it('treats an unrecognised or absent 403 reason as OTHER', () => {
+    expect(classifyGmailFailure(gmailError(403))).toBe(GMAIL_FAILURE.OTHER);
+    expect(classifyGmailFailure(gmailError(403, { errors: [{ reason: 'domainPolicy' }] }))).toBe(
+      GMAIL_FAILURE.OTHER
+    );
+  });
+
+  it('classifies malformed error objects without throwing', () => {
+    const malformed = [
+      null,
+      undefined,
+      {},
+      'a string',
+      { status: 403, errors: null, response: null },
+      { status: 403, errors: 'nope', response: { data: null } },
+      { status: 403, response: { data: { error: null } } },
+      { status: 403, response: { data: { error: { errors: [null, {}, { reason: 7 }] } } } },
+      { status: 403, message: null }
+    ];
+
+    for (const err of malformed) {
+      expect(() => classifyGmailFailure(err)).not.toThrow();
+      expect(classifyGmailFailure(err)).toBe(GMAIL_FAILURE.OTHER);
+    }
+  });
+
+  it('leaves non-4xx statuses alone', () => {
+    expect(classifyGmailFailure(gmailError(500))).toBe(GMAIL_FAILURE.OTHER);
+    expect(classifyGmailFailure(gmailError(429))).toBe(GMAIL_FAILURE.OTHER);
+  });
+});
+
+describe('sendEmail — responding to a Gmail 403', () => {
+  function rejectSendWith(err) {
+    gmailApi.users.messages.send.mockRejectedValue(err);
+  }
+
+  function gmail403(extra) {
+    const err = new Error('boom');
+    err.status = 403;
+    return Object.assign(err, extra);
+  }
+
+  async function sendAndCatch() {
+    return sendEmail('user-1', { to: TO, subject: SUBJECT, body: BODY }).catch((err) => err);
+  }
+
+  it('asks for re-approval — not "revoked" — when the token predates a scope', async () => {
+    const capture = mockConnectedGmail();
+    rejectSendWith(gmail403({ errors: [{ reason: 'insufficientPermissions' }] }));
+
+    const thrown = await sendAndCatch();
+
+    // Still disconnects: that is what drives the UI back to Connect, which is
+    // the recovery path. Only the wording changes.
+    expect(capture.update).toEqual({ gmail_connected: false });
+    expect(thrown.message).not.toMatch(/revoked/i);
+    expect(thrown.message).toMatch(/re-approval|permission/i);
+    expect(thrown.status).toBe(400);
+    // A distinct event, so scope failures are separable from real revocations.
+    expect(logger.error).toHaveBeenCalledWith('gmail_scope_insufficient', {
+      userId: 'user-1',
+      status: 403
+    });
+    expect(logger.error).not.toHaveBeenCalledWith('gmail_auth_revoked', expect.anything());
+  });
+
+  it('does NOT disconnect on a rate-limit 403, and returns a retryable error', async () => {
+    const capture = mockConnectedGmail();
+    rejectSendWith(
+      gmail403({ response: { data: { error: { errors: [{ reason: 'userRateLimitExceeded' }] } } } })
+    );
+
+    const thrown = await sendAndCatch();
+
+    // The whole point of the fix: a transient limit must not cost a re-consent.
+    expect(capture.update).toBeUndefined();
+    expect(thrown.message).toMatch(/rate limiting|try again/i);
+    expect(thrown.message).not.toMatch(/revoked|reconnect/i);
+    expect(thrown.status).toBe(429);
+    expect(logger.error).toHaveBeenCalledWith('gmail_rate_limited', {
+      userId: 'user-1',
+      status: 403
+    });
+  });
+
+  it('does NOT disconnect on a 403 with an unrecognised reason', async () => {
+    const capture = mockConnectedGmail();
+    rejectSendWith(gmail403({ errors: [{ reason: 'domainPolicy' }] }));
+
+    const thrown = await sendAndCatch();
+
+    expect(capture.update).toBeUndefined();
+    expect(thrown.message).toBe('Gmail rejected the message');
+  });
+
+  it('does NOT disconnect on a 403 carrying no reason at all', async () => {
+    const capture = mockConnectedGmail();
+    rejectSendWith(gmail403({}));
+
+    await sendAndCatch();
+
+    expect(capture.update).toBeUndefined();
+  });
+
+  it('keeps Gmail\'s raw error text out of both the logs and the thrown message', async () => {
+    mockConnectedGmail();
+    const raw = `Delegation denied for ${TO} on "${SUBJECT}"`;
+    rejectSendWith(
+      gmail403({ message: raw, errors: [{ reason: 'insufficientPermissions', message: raw }] })
+    );
+
+    const thrown = await sendAndCatch();
+
+    expect(thrown.message).not.toContain(raw);
+    expect(thrown.message).not.toContain('Delegation denied');
+    expect(thrown.message).not.toContain(TO);
+    expect(thrown.message).not.toContain(SUBJECT);
+
+    const calls = [
+      ...logger.info.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls
+    ];
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const serialized = JSON.stringify(call);
+      expect(serialized).not.toContain('Delegation denied');
+      expect(serialized).not.toContain(TO);
+      expect(serialized).not.toContain(SUBJECT);
+    }
+  });
+});
+
 describe('POST /api/send — the confirmation gate', () => {
   beforeEach(() => {
     mockConnectedGmail();
@@ -417,6 +614,93 @@ describe('POST /api/send — the confirmation gate', () => {
   });
 });
 
+/**
+ * A failed send that needs re-consent is useless to the user unless the UI can
+ * put the button in front of them. The route names the recovery as a stable
+ * CODE so the client never has to match on the wording of the message.
+ */
+describe('POST /api/send — the recovery action', () => {
+  const RECONNECT = 'reconnect_gmail';
+
+  function gmail403(extra) {
+    const err = new Error('boom');
+    err.status = 403;
+    return Object.assign(err, extra);
+  }
+
+  async function postSend() {
+    return request(createApp())
+      .post('/api/send')
+      .set(...AUTH_HEADER)
+      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: true });
+  }
+
+  beforeEach(() => {
+    mockConnectedGmail();
+  });
+
+  it('names reconnect_gmail when the token predates a scope we now need', async () => {
+    gmailApi.users.messages.send.mockRejectedValue(
+      gmail403({ errors: [{ reason: 'insufficientPermissions' }] })
+    );
+
+    const res = await postSend();
+
+    expect(res.status).toBe(400);
+    expect(res.body.action).toBe(RECONNECT);
+    expect(res.body.error).toMatch(/re-approval|permission/i);
+  });
+
+  it('names reconnect_gmail when the grant was revoked', async () => {
+    const revoked = new Error('invalid_grant');
+    revoked.status = 401;
+    gmailApi.users.messages.send.mockRejectedValue(revoked);
+
+    const res = await postSend();
+
+    expect(res.status).toBe(400);
+    expect(res.body.action).toBe(RECONNECT);
+  });
+
+  it('does NOT name it on a rate-limit 403, and still does not disconnect', async () => {
+    const capture = mockConnectedGmail();
+    gmailApi.users.messages.send.mockRejectedValue(
+      gmail403({ response: { data: { error: { errors: [{ reason: 'userRateLimitExceeded' }] } } } })
+    );
+
+    const res = await postSend();
+
+    expect(res.status).toBe(429);
+    expect(res.body.action).toBeUndefined();
+    // A transient limit must not cost the user a re-consent.
+    expect(capture.update).toBeUndefined();
+  });
+
+  it('does NOT name it on an unrecognised failure', async () => {
+    gmailApi.users.messages.send.mockRejectedValue(
+      gmail403({ errors: [{ reason: 'domainPolicy' }] })
+    );
+
+    const res = await postSend();
+
+    // The recovery code is the assertion that matters: an unrecognised failure
+    // must never send the user round a re-consent it cannot fix.
+    expect(res.body.action).toBeUndefined();
+    expect(res.status).toBe(502);
+    // A 5xx is masked on the way out (lib/httpError.js), so the client sees the
+    // generic line, not the service's 'Gmail rejected the message' — that throw
+    // is asserted at the service level above.
+    expect(res.body.error).toBe('Could not send the email');
+  });
+
+  it('adds nothing to a successful send', async () => {
+    const res = await postSend();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ messageId: 'msg-1', threadId: 'thr-1' });
+  });
+});
+
 describe('POST /api/send/generate', () => {
   beforeEach(() => {
     mockConnectedGmail();
@@ -465,6 +749,120 @@ describe('POST /api/send/generate', () => {
     expect(missingGoal.status).toBe(400);
     expect(missingGoal.body).toEqual({ error: 'A goal for the email is required' });
     expect(generateEmail).not.toHaveBeenCalled();
+    expect(gmailApi.users.messages.send).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The recipient check protects the USER'S mailbox: they send from their own
+ * Gmail, so a bounce lands on their personal sender reputation. It is advisory
+ * only — it persists nothing and blocks nothing.
+ */
+describe('POST /api/send/verify-recipient', () => {
+  const OK_RESULT = { status: 'ok', reasons: [], hasMx: true };
+
+  beforeEach(() => {
+    verifyRecipient.mockReset();
+    verifyRecipient.mockResolvedValue(OK_RESULT);
+  });
+
+  it('401s without a token, and never runs the check', async () => {
+    const res = await request(createApp()).post('/api/send/verify-recipient').send({ to: TO });
+
+    expect(res.status).toBe(401);
+    expect(verifyRecipient).not.toHaveBeenCalled();
+  });
+
+  it('returns the verification result for a valid body', async () => {
+    const warn = { status: 'warn', reasons: ['role_address'], hasMx: true };
+    verifyRecipient.mockResolvedValue(warn);
+
+    const res = await request(createApp())
+      .post('/api/send/verify-recipient')
+      .set(...AUTH_HEADER)
+      .send({ to: 'info@corp.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(warn);
+    expect(verifyRecipient).toHaveBeenCalledWith('info@corp.com');
+  });
+
+  it('marks the response no-store — a per-recipient verdict is not cacheable', async () => {
+    const res = await request(createApp())
+      .post('/api/send/verify-recipient')
+      .set(...AUTH_HEADER)
+      .send({ to: TO });
+
+    expect(res.headers['cache-control']).toContain('no-store');
+  });
+
+  it('400s on a missing or malformed body, and never runs the check', async () => {
+    const payloads = [{}, { to: '' }, { to: '   ' }, { to: 42 }, { to: null }, { to: ['a@b.com'] }];
+
+    for (const payload of payloads) {
+      const res = await request(createApp())
+        .post('/api/send/verify-recipient')
+        .set(...AUTH_HEADER)
+        .send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'A recipient email address is required' });
+    }
+
+    const noBody = await request(createApp())
+      .post('/api/send/verify-recipient')
+      .set(...AUTH_HEADER);
+
+    expect(noBody.status).toBe(400);
+    expect(verifyRecipient).not.toHaveBeenCalled();
+  });
+
+  it('keeps the recipient address — and its domain — out of every log line', async () => {
+    verifyRecipient.mockResolvedValue({ status: 'invalid', reasons: ['no_mx'], hasMx: false });
+
+    await request(createApp())
+      .post('/api/send/verify-recipient')
+      .set(...AUTH_HEADER)
+      .send({ to: TO });
+
+    const calls = [
+      ...logger.info.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls
+    ];
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const serialized = JSON.stringify(call);
+      expect(serialized).not.toContain(TO);
+      // Not even the domain: it still reveals who is being contacted.
+      expect(serialized).not.toContain('corp.com');
+    }
+
+    // The whole log line: an id and an outcome.
+    expect(logger.info).toHaveBeenCalledWith('recipient_verified', {
+      userId: 'user-abc',
+      status: 'invalid'
+    });
+  });
+
+  it('persists nothing — no table is touched on this path', async () => {
+    await request(createApp())
+      .post('/api/send/verify-recipient')
+      .set(...AUTH_HEADER)
+      .send({ to: TO });
+
+    // requireAuth verifies the JWT via auth.getUser; that is not persistence.
+    // A `.from(...)` call would be, and there is none.
+    expect(supabaseFrom).not.toHaveBeenCalled();
+  });
+
+  it('cannot send: gmail.users.messages.send is never reached', async () => {
+    await request(createApp())
+      .post('/api/send/verify-recipient')
+      .set(...AUTH_HEADER)
+      .send({ to: TO });
+
     expect(gmailApi.users.messages.send).not.toHaveBeenCalled();
   });
 });

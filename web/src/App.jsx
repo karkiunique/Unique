@@ -4,8 +4,9 @@ import AuthPage from './pages/AuthPage.jsx';
 import ComposePage from './pages/ComposePage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
 import ThreadsPage from './pages/ThreadsPage.jsx';
-import { navigateTo } from './lib/navigate.js';
-import { getSupabase, isSupabaseConfigured } from './lib/supabase.js';
+import UnsubscribePage, { unsubscribeTokenFromPath } from './pages/UnsubscribePage.jsx';
+import { Shell } from './components/Shell.jsx';
+import { isSupabaseConfigured, getSupabase } from './lib/supabase.js';
 
 /**
  * Path-based navigation, no router (CLAUDE.md). Full-page navigation goes
@@ -17,12 +18,6 @@ const PAGES = {
   '/threads': ThreadsPage
 };
 
-const NAV_LINKS = [
-  ['/', 'Voice profile'],
-  ['/compose', 'Compose'],
-  ['/threads', 'Sent & replies']
-];
-
 function currentPath() {
   try {
     return window.location.pathname || '/';
@@ -32,12 +27,17 @@ function currentPath() {
 }
 
 export default function App() {
+  const path = currentPath();
+  // `/u/<token>` is the one route a stranger reaches: it is public by design.
+  const isUnsubscribeRoute = Boolean(unsubscribeTokenFromPath(path));
+
   const configured = isSupabaseConfigured();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(configured);
 
   useEffect(() => {
-    if (!configured) return undefined;
+    // A recipient unsubscribing is not a user — never touch auth on their behalf.
+    if (!configured || isUnsubscribeRoute) return undefined;
 
     const supabase = getSupabase();
     let active = true;
@@ -56,7 +56,10 @@ export default function App() {
       active = false;
       listener?.subscription?.unsubscribe();
     };
-  }, [configured]);
+  }, [configured, isUnsubscribeRoute]);
+
+  // Before the auth gate: this page must render with no session and no app chrome.
+  if (isUnsubscribeRoute) return <UnsubscribePage />;
 
   if (!configured) {
     return (
@@ -86,18 +89,11 @@ export default function App() {
 
   if (!session) return <AuthPage />;
 
-  const Page = PAGES[currentPath()] ?? OnboardingPage;
+  const Page = PAGES[path] ?? OnboardingPage;
 
   return (
-    <>
-      <nav className="topnav">
-        {NAV_LINKS.map(([path, label]) => (
-          <button key={path} type="button" className="link" onClick={() => navigateTo(path)}>
-            {label}
-          </button>
-        ))}
-      </nav>
+    <Shell email={session?.user?.email} path={PAGES[path] ? path : '/'}>
       <Page session={session} />
-    </>
+    </Shell>
   );
 }
