@@ -193,6 +193,22 @@ Parse defensively (strip ```json fences). Input = rolling window of up to 100 mo
 - Batch: iterate leads sequentially with p-limit concurrency 3. Update each lead row as it completes so the UI can poll progress.
 - **Few-shot anchoring (mandatory in voice mode):** every generation prompt includes the decrypted exemplars as "here are real emails this person wrote" alongside the profile JSON. The instruction: match these mechanically — length, rhythm, greeting, sign-off, punctuation — not just tone. Exemplars are decrypted in memory per-request, never logged.
 - **Fidelity check pass:** after generating, a second lightweight call scores the draft against profile + exemplars: `{score_0to100, violations:[]}` checking length within user's median±40%, greeting/sign-off from their actual lists, no `never_does` violations, rhythm match. Score <80 → regenerate once with violations fed back. Still <80 → flag lead `generated` with a "low fidelity" badge so the user reviews it first. Store score on the lead row (`fidelity_score int`).
+- **Single-send fidelity gate (compose flow): 80 is a floor, not a warning.** In the one-at-a-time
+  compose flow a generated draft scoring **below 80 cannot proceed to the confirmation step** — the
+  user regenerates instead. This is stricter than the batch/review-screen behaviour above, which
+  flags a low-fidelity lead for review rather than blocking it. The reason for the difference: in the
+  compose flow the draft goes straight out under the user's name with one click, so a draft that does
+  not sound like them must not reach the send button at all.
+  **Escape hatch, to avoid a deadlock:** once the user manually edits the body, the score is marked
+  stale and the gate lifts — at that point the words are theirs, not the model's, and the whole
+  product philosophy is that the human is the author of record. Never trap a user behind a score the
+  model cannot reach.
+- **Every generated email must sign off as the user, by name.** The body always ends with a sign-off
+  drawn from the user's own `signoff_styles`, including their name — never an unsigned body, never a
+  generic closing the user does not use. Note the interaction with signature stripping: we
+  deliberately strip signature BLOCKS (title, company, URL) from the corpus, so the model must still
+  produce the closing plus the name, and must not be starved into producing a bare "Best," with no
+  name. Treat a missing sign-off as a guardrail violation and regenerate once.
 - **Edit-learning loop:** when a user edits a generated email on the review screen, diff generated vs edited; if the diff is stylistic (not content), append a note to `profile_json.learned_corrections[]` (e.g. "user removes exclamation marks", "user shortens greetings to just the name"). Cap at 20 corrections, FIFO. These get injected into future generation prompts.
 - Guardrails: banned phrases list (`"I hope this email finds you well"`, `"I know you're busy"`, `"quick question"` as subject, `"I'll keep this brief"`, `"delve"`, `"leverage"` unless the user's own emails use them), reject and regenerate once if hit. Length limit comes from the user's own typical_length_words, not a fixed cap.
 - Every generated body must end with an unsubscribe line: `\n\nDon't want emails from me? [Unsubscribe]({APP_URL}/u/{signedToken})`.
@@ -260,7 +276,67 @@ TOKEN_ENC_KEY=
 UNSUB_SECRET=
 ```
 
+## Code quality
+New and modified code must be clean and readable:
+- Clear, intention-revealing names; no single-letter vars except loop indices.
+- Small functions, one job each. Extract rather than nest deeply.
+- Comments explain WHY, not WHAT. No commented-out code committed.
+- Match existing file conventions — consistency over personal preference.
+- No dead code, no unused imports/vars (the linter enforces this; keep it green).
+
+**IMPORTANT:** "clean" is a standard for code you're already writing to satisfy a requirement. It is **NOT** license to refactor working code you weren't asked to touch. Do not rename, restructure, or "tidy" existing code outside the change's scope — that's regression risk, not cleanliness. Smallest correct change still wins.
+
+## Privacy & data protection (non-negotiable, checker-enforced)
+These are hard invariants. Any violation is a build failure, same severity as a failing test:
+- Raw email bodies live in process memory only — never written to DB, disk, logs, or error messages.
+- OAuth tokens and voice exemplars encrypted at rest (AES-256-GCM). Never logged, never in error output, never returned in an API response.
+- No secrets, tokens, email content, or PII in any log line — structured logs carry IDs and counts only (existing allowlist pattern).
+- Minimum Gmail scope for the feature being built. Never widen scope preemptively.
+- No user's data reachable by another user — auth-check every data-returning endpoint.
+
+**Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
+
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-05 — Recipient verification: MX + role/disposable only; bounce detection is the real signal
+**MX lookup plus role/disposable flagging is cheap front-line prevention, and nothing more.** It runs
+server-side on Node's built-in `dns.promises.resolveMx` — no third-party API, no new OAuth scope, and
+no recipient data leaving our infrastructure beyond the DNS query itself (which reveals a domain, not
+an address).
+
+Why it matters more than data hygiene: we send from the **user's own Gmail account**. A bad bounce
+rate damages their personal sender reputation and can get their real mailbox rate-limited. This check
+protects the user's mailbox, not just our data quality.
+
+**Its ceiling is known and accepted:** it cannot detect a departed employee at a live domain
+(`john@realcompany.com` after John left), and it cannot see through catch-all domains, which are
+common in B2B and accept everything by design. MX proves a domain can receive mail. It never proves a
+mailbox exists. Treat the result as a risk signal, never as verification — and never let a DNS
+timeout mark a good address bad.
+
+**The real deliverability signal is bounce detection, and it belongs in Phase 4** with the send
+worker, feeding the `bounced` status already present in the `leads` schema. That is ground truth
+rather than a guess, because it is the receiving server's own verdict. MX is the cheap check that
+runs before sending; bounces are the authoritative one that arrives after.
+
+**SMTP `RCPT TO` probing is rejected, not deferred.** Railway blocks outbound port 25; Gmail and
+Microsoft 365 deliberately return accept-all or ambiguous codes to defeat mailbox enumeration; and
+probing from an unwarmed IP invites blocklisting. Paid verification APIs work because they run it
+from reputation-managed IP pools, not because the technique is sound for us to self-host. Do not
+implement it.
+
+### 2026-08-05 — Recipient autocomplete (Option B) deferred; Option A carries a pre-launch cost
+Deriving autocomplete suggestions from already-ingested `in:sent` recipients is **deferred**, not
+rejected. It is a re-contact convenience that does not serve the cold-outreach case — for a genuinely
+cold prospect it returns nothing, and an empty suggestion list reads as "not a real person," which is
+worse than no feature. Revisit only if users ask for it.
+
+**Option A (Google People API) additionally carries a pre-launch cost.** Verified scope strings are
+`https://www.googleapis.com/auth/contacts.readonly` (`people.connections.list`) and
+`https://www.googleapis.com/auth/contacts.other.readonly` (`otherContacts.list`) — note the literal
+string is `contacts.other.readonly`, **not** `otherContacts.readonly`. Both are Google
+**"sensitive"-tier** scopes requiring app review before production. Fine in Testing mode, a real
+gate at launch. If Option A is ever adopted, budget that review.
 
 ### 2026-08-04 — `gmail.send` pulled forward for the minimal send/receive slice
 Phase 4's sending capability is **partially pulled forward** so the product can be validated
