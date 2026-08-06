@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-04 | Node v20.20.2 | branch feat/phase-2
-# Totals: server=255, web=46, combined=301
+# Updated: 2026-08-06 | Node v20.20.2 | branch feat/phase-2
+# Totals: server=342, web=94, combined=436
 
-### SERVER (/server, vitest, 255 tests) ###
+### SERVER (/server, vitest, 342 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -29,6 +29,16 @@ tests/auth.test.js > requireAuth > 401s when Supabase returns no user
 tests/auth.test.js > requireAuth > 401s when no Authorization header is present
 tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
 tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — auth > 401s when the token does not resolve to a user
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — auth > 401s without an Authorization header, and never touches Gmail
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > counts the corpus the voice builder would receive, skipping empty bodies
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > flags the same rows the review UI would flag
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > logs counts only, never content
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > returns exactly the five counts and nothing else
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > returns no body, subject or recipient text at any level
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > sets Cache-Control: no-store
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — failures > 400s with {error} when Gmail is not connected
+tests/corpusSummary.test.js > GET /api/voice/corpus-summary — failures > 500s with a generic {error} when the profile read fails
 tests/crypto.test.js > encrypt / decrypt > does not echo plaintext in the failure message
 tests/crypto.test.js > encrypt / decrypt > never stores the plaintext in the blob
 tests/crypto.test.js > encrypt / decrypt > prefixes the blob with the v1 version byte
@@ -74,6 +84,11 @@ tests/generate.test.js > generateEmail > rejects "quick question" as a subject a
 tests/generate.test.js > generateEmail > returns a subject and body, parsing a fenced ```json response
 tests/generate.test.js > generateEmail > still generates when the profile has no exemplars stored
 tests/generate.test.js > generateEmail > validates its input before calling the model
+tests/generate.test.js > generateEmail — signing off as the user > does not block or retry when signoff_styles is missing, empty or malformed
+tests/generate.test.js > generateEmail — signing off as the user > does not retry a draft that already signs off
+tests/generate.test.js > generateEmail — signing off as the user > names the user's own closings in the draft prompt
+tests/generate.test.js > generateEmail — signing off as the user > regenerates exactly once when the draft does not sign off
+tests/generate.test.js > generateEmail — signing off as the user > treats a closing with no name as unsigned
 tests/gmail.test.js > buildAuthUrl > asks for offline access with a forced consent prompt
 tests/gmail.test.js > buildAuthUrl > carries the user id in an opaque state param
 tests/gmail.test.js > buildAuthUrl > rejects a state that was not issued by us
@@ -167,6 +182,34 @@ tests/logger.test.js > sanitizeMeta > redacts non-scalar values
 tests/logger.test.js > sanitizeMeta > redacts token-shaped values even on allowlisted fields
 tests/logger.test.js > sanitizeMeta > returns an empty object for missing or non-object meta
 tests/logger.test.js > sanitizeMeta > truncates long strings
+tests/recipientCheck.test.js > verifyRecipient — MX > lowercases the domain before resolving
+tests/recipientCheck.test.js > verifyRecipient — MX > reads ENOTFOUND as a domain that provably cannot receive mail
+tests/recipientCheck.test.js > verifyRecipient — MX > reads NXDOMAIN the same way
+tests/recipientCheck.test.js > verifyRecipient — MX > reads RFC 7505 null MX (a lone ".") as no_mx
+tests/recipientCheck.test.js > verifyRecipient — MX > reads an empty MX record set as no_mx
+tests/recipientCheck.test.js > verifyRecipient — MX > returns ok when the domain has MX records and nothing else is flagged
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > does not cache a non-list answer either
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > does not cache a timeout — the next lookup gets a clean answer
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > keeps the default timeout bounded and short
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > resolves to unknown for an error carrying no code at all
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > resolves to unknown when the resolver answers with something that is not a record list
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > resolves to unknown, NOT invalid, for any unexpected DNS error
+tests/recipientCheck.test.js > verifyRecipient — a failed lookup is never a bad address > resolves to unknown, NOT invalid, when the lookup times out
+tests/recipientCheck.test.js > verifyRecipient — quality flags > ignores a plus tag when matching a role address
+tests/recipientCheck.test.js > verifyRecipient — quality flags > keeps the role and disposable lists non-empty and extendable
+tests/recipientCheck.test.js > verifyRecipient — quality flags > leaves an ordinary local part alone
+tests/recipientCheck.test.js > verifyRecipient — quality flags > reports both codes when an address is a role account on a disposable domain
+tests/recipientCheck.test.js > verifyRecipient — quality flags > warns on a disposable domain
+tests/recipientCheck.test.js > verifyRecipient — quality flags > warns on a role address that sits on a domain with MX
+tests/recipientCheck.test.js > verifyRecipient — syntax > flags a malformed address without ever asking DNS
+tests/recipientCheck.test.js > verifyRecipient — syntax > treats a non-string input as malformed rather than throwing
+tests/recipientCheck.test.js > verifyRecipient — the MX cache > caches a no_mx answer too
+tests/recipientCheck.test.js > verifyRecipient — the MX cache > does not re-query DNS for a domain it has already resolved
+tests/recipientCheck.test.js > verifyRecipient — the MX cache > queries again for a different domain
+tests/recipientCheck.test.js > verifyRecipient — the MX cache > re-queries after the cache is reset
+tests/recipientCheck.test.js > verifyRecipient — the MX cache > shares one entry between two different addresses on the same domain
+tests/recipientCheck.test.js > verifyRecipient — the MX cache > still applies per-address flags on a cache hit
+tests/recipientCheck.test.js > verifyRecipient — the result shape > returns stable machine codes, never prose
 tests/send.test.js > POST /api/send — the confirmation gate > 400s for other truthy stand-ins (1, "yes"), and never calls Gmail send
 tests/send.test.js > POST /api/send — the confirmation gate > 400s when confirmed is false, and never calls Gmail send
 tests/send.test.js > POST /api/send — the confirmation gate > 400s when confirmed is omitted, and never calls Gmail send
@@ -175,21 +218,60 @@ tests/send.test.js > POST /api/send — the confirmation gate > 400s with {error
 tests/send.test.js > POST /api/send — the confirmation gate > 401s without a token
 tests/send.test.js > POST /api/send — the confirmation gate > sends and returns the gmail ids when confirmed is exactly true
 tests/send.test.js > POST /api/send — the confirmation gate > sends exactly the subject and body it was given, unmodified
+tests/send.test.js > POST /api/send — the recovery action > adds nothing to a successful send
+tests/send.test.js > POST /api/send — the recovery action > does NOT name it on a rate-limit 403, and still does not disconnect
+tests/send.test.js > POST /api/send — the recovery action > does NOT name it on an unrecognised failure
+tests/send.test.js > POST /api/send — the recovery action > names reconnect_gmail when the grant was revoked
+tests/send.test.js > POST /api/send — the recovery action > names reconnect_gmail when the token predates a scope we now need
 tests/send.test.js > POST /api/send/generate > 400s without a recipient or a goal, and never drafts
 tests/send.test.js > POST /api/send/generate > 401s without a token
 tests/send.test.js > POST /api/send/generate > returns the draft and NEVER calls gmail.users.messages.send
+tests/send.test.js > POST /api/send/verify-recipient > 400s on a missing or malformed body, and never runs the check
+tests/send.test.js > POST /api/send/verify-recipient > 401s without a token, and never runs the check
+tests/send.test.js > POST /api/send/verify-recipient > cannot send: gmail.users.messages.send is never reached
+tests/send.test.js > POST /api/send/verify-recipient > keeps the recipient address — and its domain — out of every log line
+tests/send.test.js > POST /api/send/verify-recipient > marks the response no-store — a per-recipient verdict is not cacheable
+tests/send.test.js > POST /api/send/verify-recipient > persists nothing — no table is touched on this path
+tests/send.test.js > POST /api/send/verify-recipient > returns the verification result for a valid body
 tests/send.test.js > buildMimeMessage > RFC 2047 encodes a non-ASCII subject
 tests/send.test.js > buildMimeMessage > leaves a plain ASCII subject unencoded
 tests/send.test.js > buildMimeMessage > rejects a message with a missing field
 tests/send.test.js > buildMimeMessage > strips CR/LF out of header values so headers cannot be injected
 tests/send.test.js > buildMimeMessage > strips CR/LF out of the recipient header so To cannot inject either
 tests/send.test.js > buildMimeMessage > writes the required RFC 2822 headers followed by the body
+tests/send.test.js > classifyGmailFailure > classifies malformed error objects without throwing
+tests/send.test.js > classifyGmailFailure > falls back to the message text only for narrow, specific wording
+tests/send.test.js > classifyGmailFailure > leaves non-4xx statuses alone
+tests/send.test.js > classifyGmailFailure > reads 401 as a revoked grant
+tests/send.test.js > classifyGmailFailure > reads ACCESS_TOKEN_SCOPE_INSUFFICIENT out of the nested response shape
+tests/send.test.js > classifyGmailFailure > reads a 403 insufficientPermissions reason as a scope problem
+tests/send.test.js > classifyGmailFailure > reads every rate-limit reason as rate limiting, not revocation
+tests/send.test.js > classifyGmailFailure > treats an unrecognised or absent 403 reason as OTHER
 tests/send.test.js > send logging > never logs the recipient, subject or body
 tests/send.test.js > sendEmail > base64url-encodes the MIME message and calls gmail.users.messages.send
 tests/send.test.js > sendEmail > never echoes Gmail's own error message
 tests/send.test.js > sendEmail > reads the sender address from gmail.users.getProfile
 tests/send.test.js > sendEmail > rejects an implausible recipient address with 400 before calling Gmail
 tests/send.test.js > sendEmail > sets gmail_connected=false when Gmail answers 401 (auth revoked)
+tests/send.test.js > sendEmail — responding to a Gmail 403 > asks for re-approval — not "revoked" — when the token predates a scope
+tests/send.test.js > sendEmail — responding to a Gmail 403 > does NOT disconnect on a 403 carrying no reason at all
+tests/send.test.js > sendEmail — responding to a Gmail 403 > does NOT disconnect on a 403 with an unrecognised reason
+tests/send.test.js > sendEmail — responding to a Gmail 403 > does NOT disconnect on a rate-limit 403, and returns a retryable error
+tests/send.test.js > sendEmail — responding to a Gmail 403 > keeps Gmail's raw error text out of both the logs and the thrown message
+tests/signoff.test.js > findMissingSignoff > accepts a closing that already carries the name
+tests/signoff.test.js > findMissingSignoff > accepts a one-word closing that stands on its own
+tests/signoff.test.js > findMissingSignoff > carries no email content in the violation it returns
+tests/signoff.test.js > findMissingSignoff > does not block on a malformed draft
+tests/signoff.test.js > findMissingSignoff > does not block when there is nothing to match against
+tests/signoff.test.js > findMissingSignoff > flags a bare closing with no name under it
+tests/signoff.test.js > findMissingSignoff > flags a body that just stops, with no closing at all
+tests/signoff.test.js > findMissingSignoff > ignores the appended unsubscribe line when reading the tail
+tests/signoff.test.js > findMissingSignoff > matches case-insensitively
+tests/signoff.test.js > findMissingSignoff > passes a body that closes and signs with a name
+tests/signoff.test.js > findMissingSignoff > passes a closing and name written on one line
+tests/signoff.test.js > signoffStyles > drops blanks but keeps the usable entries
+tests/signoff.test.js > signoffStyles > returns the user's own closings
+tests/signoff.test.js > signoffStyles > survives a missing, empty or malformed list without throwing
 tests/supabaseClient.test.js > getSupabaseAdmin > constructs a client without throwing
 tests/supabaseClient.test.js > getSupabaseAdmin > memoizes the client across calls
 tests/supabaseClient.test.js > getSupabaseAdmin > returns a real client exposing .auth and .from
@@ -219,6 +301,11 @@ tests/unsubscribe.test.js > signToken / verifyToken > rejects a tampered signatu
 tests/unsubscribe.test.js > signToken / verifyToken > rejects a token signed with a different secret
 tests/unsubscribe.test.js > signToken / verifyToken > rejects malformed tokens
 tests/unsubscribe.test.js > signToken / verifyToken > round-trips a payload
+tests/unsubscribeStatus.test.js > POST /api/unsubscribe/:token — outcome status > 400s on an invalid token and writes nothing
+tests/unsubscribeStatus.test.js > POST /api/unsubscribe/:token — outcome status > never logs the recipient address, on either outcome
+tests/unsubscribeStatus.test.js > POST /api/unsubscribe/:token — outcome status > returns status 'already' on a second call and creates no duplicate row
+tests/unsubscribeStatus.test.js > POST /api/unsubscribe/:token — outcome status > returns status 'unsubscribed' on the first call
+tests/unsubscribeStatus.test.js > POST /api/unsubscribe/:token — outcome status > treats the same address in different case as already unsubscribed
 tests/voice.test.js > buildVoiceProfile > caps the prompt at the 80k char window, keeping the most recent emails
 tests/voice.test.js > buildVoiceProfile > makes exactly one Anthropic call with the pinned model
 tests/voice.test.js > buildVoiceProfile > rejects an empty inbox without calling the model
@@ -259,20 +346,59 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest + jsdom, 46 tests) ###
+### WEB (/web, vitest + jsdom, 94 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
-tests/App.test.jsx > App > renders OnboardingPage when there is a session
+tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
+tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
+tests/AuthPage.test.jsx > AuthPage > disables the submit button while the request is in flight
+tests/AuthPage.test.jsx > AuthPage > renders the editorial hero and the sign-in slip
+tests/AuthPage.test.jsx > AuthPage > signs in through Supabase in login mode
+tests/AuthPage.test.jsx > AuthPage > signs up through Supabase in signup mode
+tests/AuthPage.test.jsx > AuthPage > surfaces an auth error
+tests/AuthPage.test.jsx > AuthPage > toggles between sign in and sign up
 tests/ComposePage.test.jsx > ComposePage — generating > calls /send/generate and fills the subject and body fields
 tests/ComposePage.test.jsx > ComposePage — generating > does not warn when the fidelity score clears the bar
 tests/ComposePage.test.jsx > ComposePage — generating > renders a visible warning when the fidelity score is under 80
 tests/ComposePage.test.jsx > ComposePage — generating > renders the server error when drafting fails
 tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > Cancel on the confirm step returns to editing without sending
-tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > disables "Review and send" until recipient, subject and body are filled
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > disables "Review & send" until recipient, subject and body are filled
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > hands the confirm dialog exactly what is in the fields
 tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > lets a hand-written email reach the confirm step without generating
 tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > never calls /send itself — only the confirm dialog does
+tests/ComposePage.test.jsx > ComposePage — recipient verification > checks the address on blur, not on every keystroke
+tests/ComposePage.test.jsx > ComposePage — recipient verification > clears the flag as soon as the address changes
+tests/ComposePage.test.jsx > ComposePage — recipient verification > does NOT present the address as bad when the check could not complete
+tests/ComposePage.test.jsx > ComposePage — recipient verification > does not re-check an unchanged address on every blur
+tests/ComposePage.test.jsx > ComposePage — recipient verification > names a disposable domain specifically
+tests/ComposePage.test.jsx > ComposePage — recipient verification > names the specific problem on a warn result
+tests/ComposePage.test.jsx > ComposePage — recipient verification > never disables "Review & send" on any verification result — advisory only
+tests/ComposePage.test.jsx > ComposePage — recipient verification > re-checks once the address has actually changed
+tests/ComposePage.test.jsx > ComposePage — recipient verification > renders a loud red flag for an address that cannot receive mail
+tests/ComposePage.test.jsx > ComposePage — recipient verification > renders an understated tick when the domain accepts mail
+tests/ComposePage.test.jsx > ComposePage — recipient verification > treats an unreachable server as unknown, never as a bad address
+tests/ComposePage.test.jsx > ComposePage — recovering a Gmail grant from the brief > does NOT offer it for an ordinary failure
+tests/ComposePage.test.jsx > ComposePage — recovering a Gmail grant from the brief > offers Reconnect Gmail when the server names that recovery
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > does not gate a score of exactly 80
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > lifts the gate on a subject edit too
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > lifts the gate the moment the user edits the body
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > marks the score stale after an edit instead of showing a dead number
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > never gates a hand-written letter — there is no score to gate on
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > opens no confirmation dialog while blocked
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > re-arms the gate when a fresh draft also scores under 80
+tests/ComposePage.test.jsx > ComposePage — the fidelity floor > will not let a draft under 80 reach the confirmation step
+tests/ComposePage.test.jsx > ComposePage — the goal field grows with what is typed > grows as the brief gets longer and shrinks back when it is cleared
+tests/ComposePage.test.jsx > ComposePage — the goal field grows with what is typed > stops growing at the cap and scrolls beyond it
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > Cancel sends nothing and hands control back to the caller
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > disables the send button while in flight so it cannot double-send
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > renders the server error message and re-enables the button
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > POSTs /gmail/connect and navigates to the consent URL it returns
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > does NOT offer it for an ordinary failure
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > keys off the action code, not the wording of the message
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > never sends while recovering — the reconnect click posts no message
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > offers a Reconnect Gmail button when the server names that recovery
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — the overlay > a click inside the sheet never closes the dialog
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — the overlay > closes on an overlay click while still confirming, and sends nothing
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — the overlay > does NOT close on an overlay click once the letter has been sent
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > does NOT call /send on render — only after the explicit Send click
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > includes confirmed: true in the payload
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — what is shown is what is sent > renders the exact To, Subject and Body, including the unsubscribe line
@@ -291,7 +417,9 @@ tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags undecod
 tests/CorpusViewer.test.jsx > CorpusViewer — visibility > renders nothing at all when the dev route 404s
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > disables the build button while the request is in flight
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > posts /voice/generate and shows the building state on click
+tests/OnboardingPage.test.jsx > OnboardingPage — connected > renders no email bodies in the ingest stage when the dev preview is absent
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > renders the profile summary once the build resolves
+tests/OnboardingPage.test.jsx > OnboardingPage — connected > renders the stat strip from /voice/corpus-summary
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > shows the connected state and does NOT auto-generate the profile
 tests/OnboardingPage.test.jsx > OnboardingPage — disconnected > posts /gmail/connect and navigates to the returned consent url
 tests/OnboardingPage.test.jsx > OnboardingPage — disconnected > renders the Connect Gmail button when GET /voice 404s
@@ -299,10 +427,17 @@ tests/OnboardingPage.test.jsx > OnboardingPage — errors > renders a failed bui
 tests/OnboardingPage.test.jsx > OnboardingPage — errors > renders the server message in an .error element with a retry
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > does not crash on a malformed or partial profile_json
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders a null profile_json without crashing
-tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the profile summary including never_does entries
+tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the dossier including never_does entries
+tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the verbatim clipping lists, the pull-quote and emoji usage
 tests/ThreadsPage.test.jsx > ThreadsPage > loads sent threads on mount
 tests/ThreadsPage.test.jsx > ThreadsPage > makes plain that this is reply detection on sent mail, not an inbox
 tests/ThreadsPage.test.jsx > ThreadsPage > polls every 30 seconds and clears the interval on unmount
 tests/ThreadsPage.test.jsx > ThreadsPage > renders an empty state when nothing has been sent
 tests/ThreadsPage.test.jsx > ThreadsPage > renders the server message when the load fails
-tests/ThreadsPage.test.jsx > ThreadsPage > shows a REPLIED badge only on threads that were replied to
+tests/ThreadsPage.test.jsx > ThreadsPage > shows a Replied mark only on threads that were replied to
+tests/ThreadsPage.test.jsx > ThreadsPage > tallies the replies against the total in the page head
+tests/UnsubscribePage.test.jsx > UnsubscribePage > posts the token read off the path, on mount
+tests/UnsubscribePage.test.jsx > UnsubscribePage > renders a calm invalid state on a 400, with no raw error detail
+tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the already-removed state for { status: 'already' } and does not call it an error
+tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the invalid state when the path carries no token, without calling the API
+tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the removed state for { status: 'unsubscribed' }

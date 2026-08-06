@@ -20,8 +20,31 @@ import { getAuthedClient } from './gmail.js';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Printable US-ASCII. Anything outside it needs RFC 2047 encoding in a header.
 const ASCII_PRINTABLE = /^[\x20-\x7E]*$/;
-// Gmail answers 401/403 once the grant is gone; other 4xx are ordinary rejections.
-const REVOKED_STATUSES = new Set([401, 403]);
+/**
+ * How a Gmail 4xx should be treated. 403 is overloaded — it covers a token that
+ * predates a scope we now need AND ordinary rate limiting — so it is classified
+ * before anything acts on it. Disconnecting on a rate limit would cost the user
+ * a full re-consent for a condition that clears on its own.
+ */
+export const GMAIL_FAILURE = {
+  REVOKED: 'revoked',
+  INSUFFICIENT_SCOPE: 'insufficient_scope',
+  RATE_LIMITED: 'rate_limited',
+  OTHER: 'other'
+};
+
+/**
+ * The recovery the client should offer, as a stable code. The UI keys off this,
+ * never off the wording of the message: prose gets rewritten, and a client that
+ * pattern-matches English silently loses the recovery path when it does.
+ */
+export const RECONNECT_ACTION = 'reconnect_gmail';
+
+const SCOPE_REASONS = new Set(['insufficientpermissions', 'access_token_scope_insufficient']);
+const RATE_REASONS = new Set(['ratelimitexceeded', 'userratelimitexceeded', 'dailylimitexceeded']);
+// Narrow on purpose: an unmatched message falls through to the conservative branch.
+const SCOPE_MESSAGE = /insufficient authentication scopes|insufficient permission/i;
+const RATE_MESSAGE = /rate limit exceeded|daily limit exceeded/i;
 
 /** CR/LF in a header value is header injection. Collapse it before it is written. */
 function sanitizeHeader(value) {
@@ -68,6 +91,46 @@ function gmailStatus(err) {
   return Number(err?.status ?? err?.code ?? err?.response?.status) || 0;
 }
 
+/** Every level of a googleapis error can be missing. Collect what is there, throw nothing. */
+function collectErrorReasons(err) {
+  const googleError = err?.response?.data?.error;
+  const reasons = [];
+
+  for (const group of [err?.errors, googleError?.errors, googleError?.details]) {
+    if (!Array.isArray(group)) continue;
+    for (const entry of group) {
+      if (typeof entry?.reason === 'string') reasons.push(entry.reason.toLowerCase());
+    }
+  }
+  if (typeof googleError?.status === 'string') reasons.push(googleError.status.toLowerCase());
+
+  return reasons;
+}
+
+/**
+ * Which kind of failure this is, as an internal value. Google's own message is
+ * read here but never leaves this function — it can echo request content
+ * (CLAUDE.md § Privacy), so callers get an enum, not text.
+ */
+export function classifyGmailFailure(err) {
+  const status = gmailStatus(err);
+
+  if (status === 401) return GMAIL_FAILURE.REVOKED;
+  if (status !== 403) return GMAIL_FAILURE.OTHER;
+
+  const reasons = collectErrorReasons(err);
+  if (reasons.some((reason) => SCOPE_REASONS.has(reason))) return GMAIL_FAILURE.INSUFFICIENT_SCOPE;
+  if (reasons.some((reason) => RATE_REASONS.has(reason))) return GMAIL_FAILURE.RATE_LIMITED;
+
+  const message = typeof err?.message === 'string' ? err.message : '';
+  if (SCOPE_MESSAGE.test(message)) return GMAIL_FAILURE.INSUFFICIENT_SCOPE;
+  if (RATE_MESSAGE.test(message)) return GMAIL_FAILURE.RATE_LIMITED;
+
+  // Unrecognised 403: a wrong disconnect costs a full re-consent, a wrong
+  // non-disconnect costs one retry. Leave the connection alone.
+  return GMAIL_FAILURE.OTHER;
+}
+
 /** Best effort: the send failure is what the caller actually needs to hear about. */
 async function markGmailDisconnected(userId) {
   try {
@@ -77,14 +140,38 @@ async function markGmailDisconnected(userId) {
   }
 }
 
+/** A failure the user can act on: the UI turns this into a Reconnect Gmail button. */
+function reconnectError(message) {
+  const err = httpError(400, message);
+  err.action = RECONNECT_ACTION;
+  return err;
+}
+
 /** Always throws. Google's own message is never echoed — it can quote the message. */
 async function raiseGmailError(userId, err) {
   const status = gmailStatus(err);
+  const failure = classifyGmailFailure(err);
 
-  if (REVOKED_STATUSES.has(status)) {
+  if (failure === GMAIL_FAILURE.REVOKED) {
     await markGmailDisconnected(userId);
     logger.error('gmail_auth_revoked', { userId, status });
-    throw httpError(400, 'Gmail access was revoked, please reconnect Gmail');
+    throw reconnectError('Gmail access was revoked, please reconnect Gmail');
+  }
+
+  if (failure === GMAIL_FAILURE.INSUFFICIENT_SCOPE) {
+    // The grant is intact, it just predates a scope we now need. Re-consent is
+    // the recovery path, and the error carries it as an action so the UI can
+    // offer the button instead of describing it. Nothing was revoked, so the
+    // wording must not say so.
+    await markGmailDisconnected(userId);
+    logger.error('gmail_scope_insufficient', { userId, status });
+    throw reconnectError('Gmail needs re-approval for a new permission, please reconnect Gmail');
+  }
+
+  if (failure === GMAIL_FAILURE.RATE_LIMITED) {
+    // Transient and retryable — the connection stays exactly as it was.
+    logger.error('gmail_rate_limited', { userId, status });
+    throw httpError(429, 'Gmail is rate limiting sends right now, please try again shortly');
   }
 
   logger.error('gmail_send_failed', { userId, status: status || 502 });

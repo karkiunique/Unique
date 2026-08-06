@@ -50,6 +50,9 @@ export async function apiFetch(path, options = {}) {
   if (!response.ok) {
     const err = new Error(payload?.error || `Request failed with status ${response.status}`);
     err.status = response.status;
+    // The recovery the server named, as a code. Callers key off this, never off
+    // the wording of the message.
+    if (typeof payload?.action === 'string') err.action = payload.action;
     throw err;
   }
 

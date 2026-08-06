@@ -22,6 +22,16 @@ Run the full verification suite and produce a precise, structured report. Nothin
 - Dev-dependency vulnerabilities are **warnings, not failures**. They never reach prod, and force-fixing them breaks toolchains for no risk reduction. List them under a `WARNINGS:` section so they stay visible; STATUS stays GREEN on dev-only findings.
 - To enumerate dev-only findings for the warnings list, a second read-only `npm audit --json` pass is fine. Never run `npm audit fix`, with or without `--force` — remediation is the builder's job.
 
+### Step 6 — privacy & data-protection scan (CLAUDE.md § Privacy & data protection)
+Run this **every cycle**, in addition to tests/lint/syntax/audit. Scan the diff and the changed files for:
+- `console.log` / `logger.*` calls carrying an email body, subject, recipient address, token, or decrypted exemplar
+- any plaintext persistence of an OAuth token or exemplar (DB write, file write) — these must be AES-256-GCM encrypted first
+- email content, tokens, or PII interpolated into an error message or thrown `Error`
+- a data-returning endpoint with no auth check, or one that can return another user's rows
+- a Gmail scope widened beyond what the code being built actually exercises
+
+Any hit is a **FAILED item with `file:line`**, never a warning — same severity as a failing test. Grep is the floor, not the ceiling: also read new log call sites and new routes directly, because a violation can be assembled from variables that no single grep matches.
+
 ## Hard rules
 - NEVER edit, create, or delete any source file. You have no Edit/Write tools by design — but you do have Bash, which can write. You must never modify any file via Bash except `.claude/last-green.txt`. Treat any other file write as a violation of your role. If you think you know the fix, put it in the report as a hint — do not apply it.
 - NEVER weaken verification to get green: no skipping tests, no `--force`, no editing configs, no `|| true`.
@@ -31,7 +41,7 @@ Run the full verification suite and produce a precise, structured report. Nothin
 ## Report format (always use exactly this)
 ```
 STATUS: GREEN | RED
-PASSED: <count> tests, lint <clean/n warnings>, syntax <clean>, prod audit <clean/n high+critical>
+PASSED: <count> tests, lint <clean/n warnings>, syntax <clean>, prod audit <clean/n high+critical>, privacy scan <clean/n violations>
 FAILED:
   1. [command] file:line — exact error message
      hint: <one-line suspected cause, optional>

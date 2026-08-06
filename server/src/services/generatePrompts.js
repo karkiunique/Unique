@@ -1,3 +1,5 @@
+import { signoffStyles } from './signoff.js';
+
 /**
  * Prompts for single-email generation (CLAUDE.md §3). Kept separate from
  * generate.js so the service stays small and the prompt text is reviewable on
@@ -16,7 +18,8 @@ export const DRAFT_SYSTEM_PROMPT = [
   '- length: stay inside their typical_length_words, median first',
   '- rhythm: same sentence lengths, same fragments, same paragraph sizes',
   '- greeting: use one of their actual greeting_styles, verbatim in form',
-  '- sign-off: use one of their actual signoff_styles, verbatim in form',
+  '- sign-off: use one of their actual signoff_styles, verbatim in form, and SIGN IT',
+  '  with their own name on the last line',
   '- punctuation and capitalization: copy their habits exactly, quirks included',
   '- vocabulary: their words, their register, no upgrade in formality',
   '',
@@ -25,8 +28,13 @@ export const DRAFT_SYSTEM_PROMPT = [
   'Honour every entry in "learned_corrections" too: those are the user\'s own edits.',
   '',
   'Do not invent facts about the recipient. Use only the recipient details given.',
-  'Do not add a signature block, a postscript, or an unsubscribe line — those are',
-  'added downstream. Write the body only.',
+  '',
+  'ALWAYS SIGN THE EMAIL. The body ends with their closing line and then their own',
+  'name, exactly as they sign it in the real emails. Nothing comes after the name:',
+  'no job title, no company, no phone number, no links, no postscript and no',
+  'unsubscribe line — those blocks were stripped out of the samples on purpose, and',
+  'their absence is not licence to leave the email unsigned. A closing with no name,',
+  'a bare "Best," on the last line, is a failed draft.',
   '',
   'Return ONLY a single JSON object, no prose and no markdown fences:',
   '{"subject": "", "body": ""}'
@@ -48,6 +56,28 @@ function recipientBlock(recipient) {
   if (recipient?.name) lines.push(`Name: ${recipient.name}`);
   if (recipient?.company) lines.push(`Company: ${recipient.company}`);
   return lines.join('\n');
+}
+
+/**
+ * The closing is spelled out as its own requirement, not left to be inferred
+ * from the profile JSON: signature BLOCKS are stripped from the corpus, so the
+ * model has to be told that the closing line and the name still belong.
+ */
+function signoffBlock(profileJson) {
+  const styles = signoffStyles(profileJson);
+
+  if (styles.length === 0) {
+    return [
+      'SIGN-OFF (required): close the way this person closes in the real emails above,',
+      'then their own name on the final line. Never leave the email unsigned.'
+    ].join('\n');
+  }
+
+  return [
+    'SIGN-OFF (required): end the body with one of these closings, verbatim in form,',
+    'then their own name on the final line — the name they sign with in the real emails:',
+    ...styles.map((style) => `- ${style}`)
+  ].join('\n');
 }
 
 function violationBlock(violations) {
@@ -72,6 +102,8 @@ export function buildDraftUserPrompt({ profileJson, exemplars, recipient, goal, 
     '',
     'WHAT THIS EMAIL NEEDS TO DO:',
     String(goal ?? ''),
+    '',
+    signoffBlock(profileJson),
     violationBlock(violations),
     '',
     'Write the email. Return only the JSON object.'

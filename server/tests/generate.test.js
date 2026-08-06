@@ -40,6 +40,11 @@ const GOAL = 'ask for 15 minutes to show the demo';
 
 const EXEMPLAR = 'hey Sam\n\nsaw the raise go through. worth 15 minutes next week?\n\nthanks,\nAna';
 
+// Every draft must now sign off as the user (CLAUDE.md §3), so the fixtures do:
+// an unsigned body is a guardrail violation and would buy an extra redraft.
+const SIGNED_BODY = 'hey Sam\n\nworth 15 minutes?\n\nthanks,\nAna';
+const UNSIGNED_BODY = 'hey Sam\n\nworth 15 minutes?';
+
 const PROFILE = {
   tone: 'direct and warm',
   formality_1to10: 4,
@@ -56,6 +61,11 @@ function textResponse(text) {
 
 function draftJson(subject, body) {
   return JSON.stringify({ subject, body });
+}
+
+/** The same JSON, wrapped in the markdown fence the model sometimes adds. */
+function fencedDraftJson(subject, body) {
+  return ['```json', draftJson(subject, body), '```'].join('\n');
 }
 
 function fidelityJson(score, violations = []) {
@@ -114,11 +124,7 @@ describe('generateEmail', () => {
   it('returns a subject and body, parsing a fenced ```json response', async () => {
     mockProfileRow();
     create
-      .mockResolvedValueOnce(
-        textResponse(
-          '```json\n{"subject":"about the raise","body":"hey Sam\\n\\nworth 15 minutes?"}\n```'
-        )
-      )
+      .mockResolvedValueOnce(textResponse(fencedDraftJson('about the raise', SIGNED_BODY)))
       .mockResolvedValueOnce(textResponse(fidelityJson(92)));
 
     const result = await generateEmail('user-1', { to: TO, goal: GOAL });
@@ -173,10 +179,14 @@ describe('generateEmail', () => {
     mockProfileRow();
     create
       .mockResolvedValueOnce(
-        textResponse(draftJson('about the raise', 'hey Sam\n\nthis one runs far too long'))
+        textResponse(
+          draftJson('about the raise', 'hey Sam\n\nthis one runs far too long\n\nthanks,\nAna')
+        )
       )
       .mockResolvedValueOnce(textResponse(fidelityJson(61, ['far longer than their median'])))
-      .mockResolvedValueOnce(textResponse(draftJson('about the raise', 'hey Sam\n\nshorter?')))
+      .mockResolvedValueOnce(
+        textResponse(draftJson('about the raise', 'hey Sam\n\nshorter?\n\nthanks,\nAna'))
+      )
       .mockResolvedValueOnce(textResponse(fidelityJson(72, ['still longer than their median'])));
 
     const result = await generateEmail('user-1', { to: TO, goal: GOAL });
@@ -192,9 +202,7 @@ describe('generateEmail', () => {
   it('does not regenerate when the fidelity score clears the bar', async () => {
     mockProfileRow();
     create
-      .mockResolvedValueOnce(
-        textResponse(draftJson('about the raise', 'hey Sam\n\nworth 15 minutes?'))
-      )
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
       .mockResolvedValueOnce(textResponse(fidelityJson(80)));
 
     const result = await generateEmail('user-1', { to: TO, goal: GOAL });
@@ -206,9 +214,7 @@ describe('generateEmail', () => {
   it('appends the unsubscribe line with a token that verifies back to user and recipient', async () => {
     mockProfileRow();
     create
-      .mockResolvedValueOnce(
-        textResponse(draftJson('about the raise', 'hey Sam\n\nworth 15 minutes?'))
-      )
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
       .mockResolvedValueOnce(textResponse(fidelityJson(95)));
 
     const result = await generateEmail('user-1', { to: TO, goal: GOAL });
@@ -224,9 +230,7 @@ describe('generateEmail', () => {
   it('decrypts the exemplars into the prompt and never logs them', async () => {
     mockProfileRow();
     create
-      .mockResolvedValueOnce(
-        textResponse(draftJson('about the raise', 'hey Sam\n\nworth 15 minutes?'))
-      )
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
       .mockResolvedValueOnce(textResponse(fidelityJson(93)));
 
     await generateEmail('user-1', { to: TO, goal: GOAL });
@@ -258,9 +262,7 @@ describe('generateEmail', () => {
   it('still generates when the profile has no exemplars stored', async () => {
     mockProfileRow({ exemplars: [] });
     create
-      .mockResolvedValueOnce(
-        textResponse(draftJson('about the raise', 'hey Sam\n\nworth 15 minutes?'))
-      )
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
       .mockResolvedValueOnce(textResponse(fidelityJson(85)));
 
     const result = await generateEmail('user-1', { to: TO, goal: GOAL });
@@ -288,6 +290,95 @@ describe('generateEmail', () => {
     await expect(generateEmail('user-1', { to: TO, goal: GOAL })).rejects.toThrow(
       /did not return valid JSON/i
     );
+  });
+});
+
+/**
+ * CLAUDE.md §3: the body always ends with a closing the user actually uses, plus
+ * their name. Signature BLOCKS are stripped from the corpus on purpose, and that
+ * must not starve the model into sending an unsigned letter under their name.
+ */
+describe('generateEmail — signing off as the user', () => {
+  it('regenerates exactly once when the draft does not sign off', async () => {
+    mockProfileRow();
+    create
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', UNSIGNED_BODY)))
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
+      .mockResolvedValueOnce(textResponse(fidelityJson(91)));
+
+    const result = await generateEmail('user-1', { to: TO, goal: GOAL });
+
+    // draft, ONE redraft, fidelity — the existing retry, not a third pass.
+    expect(create).toHaveBeenCalledTimes(3);
+    expect(result.body).toContain('thanks,\nAna');
+    expect(result.violations).toEqual([]);
+    // The violation is fed back into the retry prompt, same as a banned phrase.
+    expect(promptsSentToModel()[1]).toMatch(/closing this person actually uses/i);
+  });
+
+  it('does not retry a draft that already signs off', async () => {
+    mockProfileRow();
+    create
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
+      .mockResolvedValueOnce(textResponse(fidelityJson(88)));
+
+    const result = await generateEmail('user-1', { to: TO, goal: GOAL });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(result.violations).toEqual([]);
+  });
+
+  it('treats a closing with no name as unsigned', async () => {
+    mockProfileRow();
+    create
+      .mockResolvedValueOnce(
+        textResponse(draftJson('about the raise', 'hey Sam\n\nworth 15 minutes?\n\nthanks,'))
+      )
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
+      .mockResolvedValueOnce(textResponse(fidelityJson(90)));
+
+    await generateEmail('user-1', { to: TO, goal: GOAL });
+
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not block or retry when signoff_styles is missing, empty or malformed', async () => {
+    const broken = [
+      { ...PROFILE, signoff_styles: [] },
+      { ...PROFILE, signoff_styles: undefined },
+      { ...PROFILE, signoff_styles: 'thanks,' },
+      { ...PROFILE, signoff_styles: [null, 7] }
+    ];
+
+    for (const profileJson of broken) {
+      create.mockReset();
+      mockProfileRow({ profileJson });
+      create
+        .mockResolvedValueOnce(textResponse(draftJson('about the raise', UNSIGNED_BODY)))
+        .mockResolvedValueOnce(textResponse(fidelityJson(84)));
+
+      const result = await generateEmail('user-1', { to: TO, goal: GOAL });
+
+      // Nothing to match against is not a violation: never block a generation
+      // on a check we cannot make.
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(result.violations).toEqual([]);
+      expect(result.subject).toBe('about the raise');
+    }
+  });
+
+  it('names the user\'s own closings in the draft prompt', async () => {
+    mockProfileRow();
+    create
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
+      .mockResolvedValueOnce(textResponse(fidelityJson(93)));
+
+    await generateEmail('user-1', { to: TO, goal: GOAL });
+
+    const draftPrompt = promptsSentToModel()[0];
+
+    expect(draftPrompt).toMatch(/SIGN-OFF \(required\)/);
+    expect(draftPrompt).toContain('thanks,');
   });
 });
 

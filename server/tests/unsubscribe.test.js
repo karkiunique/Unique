@@ -28,10 +28,11 @@ const { OAuth2, gmailFactory } = vi.hoisted(() => {
   };
 });
 
-const { getUser, supabaseFrom, upsert } = vi.hoisted(() => ({
+const { getUser, supabaseFrom, upsert, maybeSingle } = vi.hoisted(() => ({
   getUser: vi.fn(),
   supabaseFrom: vi.fn(),
-  upsert: vi.fn()
+  upsert: vi.fn(),
+  maybeSingle: vi.fn()
 }));
 
 // No real Google calls in tests.
@@ -81,12 +82,18 @@ beforeEach(() => {
   getUser.mockReset();
   supabaseFrom.mockReset();
   upsert.mockReset();
+  maybeSingle.mockReset();
   logger.info.mockClear();
   logger.warn.mockClear();
   logger.error.mockClear();
 
+  // Default: the address is not on the list yet, so the route writes it.
+  maybeSingle.mockResolvedValue({ data: null, error: null });
   upsert.mockResolvedValue({ data: null, error: null });
-  supabaseFrom.mockReturnValue({ upsert });
+  supabaseFrom.mockReturnValue({
+    select: () => ({ eq: () => ({ eq: () => ({ maybeSingle }) }) }),
+    upsert
+  });
 });
 
 afterEach(() => {
@@ -153,7 +160,7 @@ describe('POST /api/unsubscribe/:token', () => {
     const res = await request(createApp()).post(`/api/unsubscribe/${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ unsubscribed: true });
+    expect(res.body).toEqual({ status: 'unsubscribed' });
     expect(getUser).not.toHaveBeenCalled();
   });
 

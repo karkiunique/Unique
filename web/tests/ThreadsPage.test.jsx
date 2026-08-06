@@ -53,15 +53,23 @@ describe('ThreadsPage', () => {
     expect(apiGet).toHaveBeenCalledWith('/threads');
   });
 
-  it('shows a REPLIED badge only on threads that were replied to', async () => {
+  it('shows a Replied mark only on threads that were replied to', async () => {
     render(<ThreadsPage />);
 
     expect(await screen.findByText('about the launch')).toBeInTheDocument();
 
-    const badges = screen.getAllByText('REPLIED');
+    const badges = screen.getAllByText('Replied');
     expect(badges).toHaveLength(1);
-    // The badge belongs to the replied thread's row, not the other one.
-    expect(badges[0].closest('.row')).toHaveTextContent('about the launch');
+    // The mark belongs to the replied thread's row, not the other one.
+    expect(badges[0].closest('.reg-row')).toHaveTextContent('about the launch');
+  });
+
+  it('tallies the replies against the total in the page head', async () => {
+    const { container } = render(<ThreadsPage />);
+
+    await screen.findByText('about the launch');
+
+    expect(container.querySelector('.tally').textContent).toBe('1/2');
   });
 
   it('makes plain that this is reply detection on sent mail, not an inbox', async () => {
@@ -76,7 +84,7 @@ describe('ThreadsPage', () => {
     render(<ThreadsPage />);
 
     expect(await screen.findByText('Nothing sent from here yet.')).toBeInTheDocument();
-    expect(screen.queryByText('REPLIED')).not.toBeInTheDocument();
+    expect(screen.queryByText('Replied')).not.toBeInTheDocument();
   });
 
   it('renders the server message when the load fails', async () => {

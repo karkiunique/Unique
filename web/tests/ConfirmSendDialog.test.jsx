@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const { apiPost } = vi.hoisted(() => ({ apiPost: vi.fn() }));
+const { apiPost, navigateTo } = vi.hoisted(() => ({ apiPost: vi.fn(), navigateTo: vi.fn() }));
 
 // No real network in tests.
 vi.mock('../src/lib/api.js', () => ({
@@ -10,20 +10,39 @@ vi.mock('../src/lib/api.js', () => ({
   apiFetch: vi.fn()
 }));
 
+// Stubbed so asserting on the OAuth redirect never actually navigates.
+vi.mock('../src/lib/navigate.js', () => ({
+  navigateTo,
+  getQueryParam: () => null
+}));
+
 const { default: ConfirmSendDialog } = await import('../src/components/ConfirmSendDialog.jsx');
 
 const TO = 'sam@corp.com';
 const SUBJECT = 'about the launch';
+/**
+ * Deliberately ragged — leading and trailing whitespace, and a "blank" line that
+ * is actually spaces. What the user read is what leaves their Gmail, byte for
+ * byte, so any tidying between the screen and the payload (a .trim(), a collapse
+ * of blank lines) has to fail the assertions below rather than pass unnoticed.
+ */
 const BODY = [
+  '  ',
   'hey Sam',
-  '',
+  '   ',
   'saw the launch go out. worth 15 minutes next week?',
   '',
   'thanks,',
   'Ana',
   '',
-  "Don't want emails from me? [Unsubscribe](http://localhost:5173/u/abc.def)"
+  "Don't want emails from me? [Unsubscribe](http://localhost:5173/u/abc.def)",
+  '  '
 ].join('\n');
+
+// The redesign renamed the buttons; what they do is unchanged.
+const SEND = { name: 'Send from my Gmail' };
+const SENDING = { name: 'Sending…' };
+const CANCEL = { name: /keep editing/i };
 
 /** A promise we can leave pending, so "in flight" is observable. */
 function deferred() {
@@ -53,6 +72,7 @@ function renderDialog(overrides = {}) {
 
 beforeEach(() => {
   apiPost.mockReset();
+  navigateTo.mockReset();
 });
 
 describe('ConfirmSendDialog — what is shown is what is sent', () => {
@@ -77,7 +97,7 @@ describe('ConfirmSendDialog — what is shown is what is sent', () => {
 
     expect(apiPost).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'Send email' }));
+    await user.click(screen.getByRole('button', SEND));
 
     expect(apiPost).toHaveBeenCalledTimes(1);
     expect(apiPost.mock.calls[0][0]).toBe('/send');
@@ -88,7 +108,7 @@ describe('ConfirmSendDialog — what is shown is what is sent', () => {
     const user = userEvent.setup();
 
     renderDialog();
-    await user.click(screen.getByRole('button', { name: 'Send email' }));
+    await user.click(screen.getByRole('button', SEND));
 
     expect(apiPost.mock.calls[0][1].confirmed).toBe(true);
   });
@@ -103,7 +123,7 @@ describe('ConfirmSendDialog — what is shown is what is sent', () => {
     const shownBody = container.querySelector('.confirm-body').textContent;
     const shownTo = container.querySelector('.confirm-to').textContent;
 
-    await user.click(screen.getByRole('button', { name: 'Send email' }));
+    await user.click(screen.getByRole('button', SEND));
 
     const payload = apiPost.mock.calls[0][1];
     expect(payload.subject).toBe(shownSubject);
@@ -116,7 +136,7 @@ describe('ConfirmSendDialog — what is shown is what is sent', () => {
     const user = userEvent.setup();
 
     const { onSent } = renderDialog();
-    await user.click(screen.getByRole('button', { name: 'Send email' }));
+    await user.click(screen.getByRole('button', SEND));
 
     expect(await screen.findByText('msg-1')).toBeInTheDocument();
     expect(screen.getByText('thr-1')).toBeInTheDocument();
@@ -129,7 +149,7 @@ describe('ConfirmSendDialog — cancelling and failures', () => {
     const user = userEvent.setup();
 
     const { onCancel } = renderDialog();
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', CANCEL));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(apiPost).not.toHaveBeenCalled();
@@ -141,12 +161,12 @@ describe('ConfirmSendDialog — cancelling and failures', () => {
     const user = userEvent.setup();
 
     renderDialog();
-    const button = screen.getByRole('button', { name: 'Send email' });
+    const button = screen.getByRole('button', SEND);
     await user.click(button);
 
     // Relabelled and disabled: a second click cannot reach the handler.
-    expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: 'Send email' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', SENDING)).toBeDisabled();
+    expect(screen.queryByRole('button', SEND)).not.toBeInTheDocument();
     expect(apiPost).toHaveBeenCalledTimes(1);
   });
 
@@ -157,12 +177,126 @@ describe('ConfirmSendDialog — cancelling and failures', () => {
     const user = userEvent.setup();
 
     const { container } = renderDialog();
-    await user.click(screen.getByRole('button', { name: 'Send email' }));
+    await user.click(screen.getByRole('button', SEND));
 
     expect(
       await screen.findByText('Gmail access was revoked, please reconnect Gmail')
     ).toBeInTheDocument();
     expect(container.querySelector('.error')).toHaveTextContent('Gmail access was revoked');
-    expect(screen.getByRole('button', { name: 'Send email' })).toBeEnabled();
+    expect(screen.getByRole('button', SEND)).toBeEnabled();
+  });
+});
+
+/**
+ * The send fails here, so the way out has to be here. Describing "please
+ * reconnect Gmail" with no button leaves the user stuck on the last screen of
+ * the flow with nothing to click.
+ */
+describe('ConfirmSendDialog — recovering a Gmail grant', () => {
+  const RECONNECT = { name: 'Reconnect Gmail' };
+  const CONSENT_URL = 'https://accounts.google.com/o/oauth2/v2/auth?scope=gmail.send';
+
+  const SCOPE_MESSAGE = 'Gmail needs re-approval for a new permission, please reconnect Gmail';
+
+  function scopeError(message = SCOPE_MESSAGE) {
+    const err = new Error(message);
+    err.status = 400;
+    err.action = 'reconnect_gmail';
+    return err;
+  }
+
+  async function failSendWith(err) {
+    apiPost.mockImplementation(async (path) => {
+      if (path === '/gmail/connect') return { url: CONSENT_URL };
+      throw err;
+    });
+
+    const user = userEvent.setup();
+    const view = renderDialog();
+    await user.click(screen.getByRole('button', SEND));
+
+    return { user, ...view };
+  }
+
+  it('offers a Reconnect Gmail button when the server names that recovery', async () => {
+    await failSendWith(scopeError());
+
+    expect(await screen.findByRole('button', RECONNECT)).toBeInTheDocument();
+    expect(screen.getByText(SCOPE_MESSAGE)).toBeInTheDocument();
+  });
+
+  it('POSTs /gmail/connect and navigates to the consent URL it returns', async () => {
+    const { user } = await failSendWith(scopeError());
+
+    await user.click(await screen.findByRole('button', RECONNECT));
+
+    await waitFor(() => expect(navigateTo).toHaveBeenCalledWith(CONSENT_URL));
+    expect(apiPost.mock.calls.filter(([path]) => path === '/gmail/connect')).toHaveLength(1);
+  });
+
+  it('keys off the action code, not the wording of the message', async () => {
+    // A message that never says "reconnect" still gets the button.
+    await failSendWith(scopeError('Gmail would not accept that request'));
+
+    expect(await screen.findByRole('button', RECONNECT)).toBeInTheDocument();
+  });
+
+  it('does NOT offer it for an ordinary failure', async () => {
+    const err = new Error('Gmail rejected the message');
+    err.status = 502;
+    apiPost.mockRejectedValue(err);
+    const user = userEvent.setup();
+
+    renderDialog();
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(await screen.findByText('Gmail rejected the message')).toBeInTheDocument();
+    expect(screen.queryByRole('button', RECONNECT)).not.toBeInTheDocument();
+    expect(navigateTo).not.toHaveBeenCalled();
+  });
+
+  it('never sends while recovering — the reconnect click posts no message', async () => {
+    const { user } = await failSendWith(scopeError());
+
+    await user.click(await screen.findByRole('button', RECONNECT));
+
+    await waitFor(() => expect(navigateTo).toHaveBeenCalled());
+    // One /send (the click that failed) and nothing more.
+    expect(apiPost.mock.calls.filter(([path]) => path === '/send')).toHaveLength(1);
+  });
+});
+
+describe('ConfirmSendDialog — the overlay', () => {
+  it('closes on an overlay click while still confirming, and sends nothing', async () => {
+    const user = userEvent.setup();
+
+    const { container, onCancel } = renderDialog();
+    await user.click(container.querySelector('.modal-overlay'));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it('does NOT close on an overlay click once the letter has been sent', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 'thr-1' });
+    const user = userEvent.setup();
+
+    const { container, onCancel } = renderDialog();
+    await user.click(screen.getByRole('button', SEND));
+    await screen.findByText('msg-1');
+
+    await user.click(container.querySelector('.modal-overlay'));
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText('msg-1')).toBeInTheDocument();
+  });
+
+  it('a click inside the sheet never closes the dialog', async () => {
+    const user = userEvent.setup();
+
+    const { container, onCancel } = renderDialog();
+    await user.click(container.querySelector('.confirm-body'));
+
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });
