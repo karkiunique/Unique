@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
 # Updated: 2026-08-08 | Node v20.20.2 | branch feat/phase-3
-# Totals: server=452, web=199, combined=651
+# Totals: server=500, web=199, combined=699
 
-### SERVER (/server, vitest, 452 tests) ###
+### SERVER (/server, vitest, 500 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -38,6 +38,16 @@ tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > forwards only the edit
 tests/campaignRoutes.test.js > POST /api/campaigns > creates the campaign for the authenticated user
 tests/campaignRoutes.test.js > POST /api/campaigns > ignores a user_id in the body — the owner is the token, always
 tests/campaignRoutes.test.js > POST /api/campaigns > returns the service status and message for invalid input
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 400s on an id that is not a campaign id
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 401s on the trailing-slash variant too, without reaching the service
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 401s without a token, without reaching the service
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 404s when the campaign is not the caller's, and never starts a run
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > forwards an explicit goal and ignores a user_id in the body
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > logs ids and counts only
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > returns no lead data and no exemplars in the response
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > starts the run for the authenticated user and answers 202 with counts
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > still answers 202 when the background run rejects, and logs no content
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > surfaces the service status when there is nothing to generate
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s above the row cap and never reaches the service
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s cleanly on an empty rows array
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s on an id that is not a campaign id
@@ -131,6 +141,30 @@ tests/generate.test.js > generateEmail — signing off as the user > does not re
 tests/generate.test.js > generateEmail — signing off as the user > names the user's own closings in the draft prompt
 tests/generate.test.js > generateEmail — signing off as the user > regenerates exactly once when the draft does not sign off
 tests/generate.test.js > generateEmail — signing off as the user > treats a closing with no name as unsigned
+tests/generateBatch.test.js > concurrency and progress > never runs more than three leads at once
+tests/generateBatch.test.js > concurrency and progress > writes each lead as it completes rather than once at the end
+tests/generateBatch.test.js > owner scoping > 400s before any model call when there is no voice profile yet
+tests/generateBatch.test.js > owner scoping > 400s when there are no pending recipients, and 409s a run already going
+tests/generateBatch.test.js > owner scoping > 404s on another user's campaign, touching nothing
+tests/generateBatch.test.js > owner scoping > filters every read and every write by user_id
+tests/generateBatch.test.js > privacy > logs ids, counts and a reason code only
+tests/generateBatch.test.js > privacy > logs nothing from the model when a call throws
+tests/generateBatch.test.js > resilience > fails one lead on a malformed model response and generates the rest
+tests/generateBatch.test.js > resilience > keeps the batch running when a model call throws mid-batch
+tests/generateBatch.test.js > resilience > leaves a lead pending when the draft is fine but the write fails
+tests/generateBatch.test.js > resilience > stores a twice-failed fidelity score and still marks the lead generated
+tests/generateBatch.test.js > template mode > fails a lead with a missing merge var and never blanks the substitution
+tests/generateBatch.test.js > template mode > re-personalises once on a low fidelity score and stores the second score
+tests/generateBatch.test.js > template mode > re-personalises once when a section comes back with a banned phrase
+tests/generateBatch.test.js > template mode > refuses to start when a template campaign has no subject line
+tests/generateBatch.test.js > template mode > refuses to start when the template lost its {{personalized}} section
+tests/generateBatch.test.js > template mode > substitutes merge vars in code — the model never sees a raw {{var}}
+tests/generateBatch.test.js > voice mode > appends no unsubscribe footer to a generated body
+tests/generateBatch.test.js > voice mode > drafts every pending lead and stores subject, body and score
+tests/generateBatch.test.js > voice mode > moves the campaign draft -> generating -> review
+tests/generateBatch.test.js > voice mode > prefers the user's own subject line over the model's when they wrote one
+tests/generateBatch.test.js > voice mode > puts the decrypted exemplars in every generation prompt
+tests/generateBatch.test.js > voice mode > uses the campaign name as the goal, and an explicit goal when given one
 tests/gmail.test.js > buildAuthUrl > asks for offline access with a forced consent prompt
 tests/gmail.test.js > buildAuthUrl > carries the user id in an opaque state param
 tests/gmail.test.js > buildAuthUrl > rejects a state that was not issued by us
@@ -369,6 +403,20 @@ tests/supabaseClient.test.js > getSupabaseAdmin > returns a real client exposing
 tests/supabaseClient.test.js > getSupabaseAdmin > throws a clear error when SUPABASE_SERVICE_ROLE_KEY is missing
 tests/supabaseClient.test.js > getSupabaseAdmin > throws a clear error when SUPABASE_URL is missing
 tests/supabaseClient.test.js > resetSupabaseAdmin > clears the memo so a later call builds a fresh client
+tests/templateMerge.test.js > applyMergeVars > accepts a numeric value from a CSV column
+tests/templateMerge.test.js > applyMergeVars > leaves {{personalized}} and unknown tokens untouched
+tests/templateMerge.test.js > applyMergeVars > substitutes every supported variable and trims the value
+tests/templateMerge.test.js > findMergeVars > handles a missing or non-string template without throwing
+tests/templateMerge.test.js > findMergeVars > ignores {{personalized}} and anything that is not a merge variable
+tests/templateMerge.test.js > findMergeVars > never claims a variable outside the supported set
+tests/templateMerge.test.js > findMergeVars > returns the variables a template uses, deduped and in order
+tests/templateMerge.test.js > findMergeVars > tolerates whitespace inside the braces
+tests/templateMerge.test.js > findMissingMergeVars > does not flag a variable the template never uses
+tests/templateMerge.test.js > findMissingMergeVars > flags null, undefined, empty and whitespace-only values alike
+tests/templateMerge.test.js > findMissingMergeVars > is empty when the lead can fill every variable
+tests/templateMerge.test.js > splitOnPersonalized / fillPersonalized > rebuilds the original template when there is no gap at all
+tests/templateMerge.test.js > splitOnPersonalized / fillPersonalized > round-trips a single personalised gap
+tests/templateMerge.test.js > splitOnPersonalized / fillPersonalized > round-trips two gaps in order
 tests/threadDetail.test.js > GET /api/threads/:threadId > 400s an implausible thread id with {error} JSON
 tests/threadDetail.test.js > GET /api/threads/:threadId > 401s without a token, and never calls Gmail
 tests/threadDetail.test.js > GET /api/threads/:threadId > 404s a thread the user did not send from Unique

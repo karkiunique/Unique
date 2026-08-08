@@ -32,13 +32,15 @@ const { OAuth2, gmailFactory } = vi.hoisted(() => {
   };
 });
 
-const { getUser, create, list, get, update, add } = vi.hoisted(() => ({
+const { getUser, create, list, get, update, add, begin, run } = vi.hoisted(() => ({
   getUser: vi.fn(),
   create: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   update: vi.fn(),
-  add: vi.fn()
+  add: vi.fn(),
+  begin: vi.fn(),
+  run: vi.fn()
 }));
 
 vi.mock('googleapis', () => ({
@@ -70,6 +72,11 @@ vi.mock('../src/services/leads.js', async (importOriginal) => {
   return { ...actual, addLeads: add };
 });
 
+vi.mock('../src/services/generateBatch.js', () => ({
+  beginCampaignGeneration: begin,
+  runCampaignGeneration: run
+}));
+
 const { createApp } = await import('../src/app.js');
 const { MAX_LEADS_PER_REQUEST } = await import('../src/services/leads.js');
 const { logger } = await import('../src/lib/logger.js');
@@ -88,6 +95,20 @@ const CAMPAIGN = {
   subject_template: null,
   status: 'draft',
   created_at: '2026-08-06T00:00:00.000Z'
+};
+
+/**
+ * What beginCampaignGeneration hands back. It carries the user's DECRYPTED voice
+ * exemplars, so the route must pass it straight on and never serialize it — the
+ * assertions below check exactly that.
+ */
+const PREPARED = {
+  userId: USER_ID,
+  campaign: CAMPAIGN,
+  leads: [{ id: 'lead-1' }, { id: 'lead-2' }, { id: 'lead-3' }],
+  voice: { profileJson: { tone: 'direct' }, exemplars: ['hey Sam, saw the raise go through'] },
+  goal: 'Series A outreach',
+  pending: 3
 };
 
 function httpError(status, message) {
@@ -113,12 +134,16 @@ beforeEach(() => {
   get.mockReset();
   update.mockReset();
   add.mockReset();
+  begin.mockReset();
+  run.mockReset();
 
   create.mockResolvedValue(CAMPAIGN);
   list.mockResolvedValue([{ ...CAMPAIGN, sentCount: 2, repliedCount: 1 }]);
   get.mockResolvedValue({ ...CAMPAIGN, sentCount: 0, repliedCount: 0, leads: [] });
   update.mockResolvedValue({ ...CAMPAIGN, name: 'Renamed run' });
   add.mockResolvedValue({ inserted: 1, skipped: [], rejected: [], flagged: [] });
+  begin.mockResolvedValue(PREPARED);
+  run.mockResolvedValue({ campaignId: CAMPAIGN_ID, generated: 3, failed: 0, failures: [] });
 
   logger.info.mockClear();
   logger.warn.mockClear();
@@ -339,6 +364,112 @@ describe('POST /api/campaigns/:id/leads', () => {
     const serialized = JSON.stringify(logger.error.mock.calls);
 
     expect(serialized).not.toContain('marguerite@blackwood.example');
+  });
+});
+
+describe('POST /api/campaigns/:id/generate', () => {
+  it('starts the run for the authenticated user and answers 202 with counts', async () => {
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ campaignId: CAMPAIGN_ID, status: 'generating', pending: 3 });
+    expect(begin).toHaveBeenCalledWith(USER_ID, CAMPAIGN_ID, undefined);
+    expect(run).toHaveBeenCalledWith(PREPARED);
+  });
+
+  it('forwards an explicit goal and ignores a user_id in the body', async () => {
+    await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({
+      goal: 'book a 15 minute demo',
+      user_id: 'user-someone-else'
+    });
+
+    expect(begin).toHaveBeenCalledWith(USER_ID, CAMPAIGN_ID, 'book a 15 minute demo');
+  });
+
+  it('returns no lead data and no exemplars in the response', async () => {
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain('saw the raise go through');
+    expect(serialized).not.toContain('lead-1');
+    expect(res.body).not.toHaveProperty('leads');
+    expect(res.body).not.toHaveProperty('voice');
+  });
+
+  it('401s without a token, without reaching the service', async () => {
+    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+
+    expect(res.status).toBe(401);
+    expect(begin).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The trailing-slash variant matches the same route by Express default, so it
+   * must clear the same auth gate. Pinned rather than assumed: this repo has
+   * already shipped a route variant that reached a service past a green suite,
+   * and `app.set('strict routing')` would change this matching silently.
+   */
+  it('401s on the trailing-slash variant too, without reaching the service', async () => {
+    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/generate/`).send({});
+
+    expect(res.status).toBe(401);
+    expect(begin).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("404s when the campaign is not the caller's, and never starts a run", async () => {
+    begin.mockRejectedValue(httpError(404, 'Campaign not found'));
+
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Campaign not found' });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('400s on an id that is not a campaign id', async () => {
+    const res = await authed('post', '/api/campaigns/not-a-uuid/generate').send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid campaign id' });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the service status when there is nothing to generate', async () => {
+    begin.mockRejectedValue(httpError(400, 'There are no recipients waiting for a draft'));
+
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'There are no recipients waiting for a draft' });
+  });
+
+  it('still answers 202 when the background run rejects, and logs no content', async () => {
+    run.mockRejectedValue(new Error('anthropic said hey Sam, saw the raise go through'));
+
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+    // Let the deliberately un-awaited run settle before reading the log.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(res.status).toBe(202);
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('saw the raise go through');
+  });
+
+  it('logs ids and counts only', async () => {
+    await authed('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({
+      goal: 'reach Marguerite at Blackwood Holdings'
+    });
+
+    const serialized = JSON.stringify([
+      ...logger.info.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls
+    ]);
+
+    expect(serialized).not.toContain('Marguerite');
+    expect(serialized).not.toContain('Blackwood');
+    expect(serialized).not.toContain('saw the raise go through');
   });
 });
 

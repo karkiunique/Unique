@@ -8,6 +8,10 @@ import {
   updateCampaign
 } from '../services/campaigns.js';
 import { addLeads, MAX_LEADS_PER_REQUEST } from '../services/leads.js';
+import {
+  beginCampaignGeneration,
+  runCampaignGeneration
+} from '../services/generateBatch.js';
 import { safeMessage } from '../lib/httpError.js';
 import { logger } from '../lib/logger.js';
 
@@ -123,6 +127,52 @@ router.post('/campaigns/:id/leads', requireAuth, async (req, res) => {
     return res.status(201).json(result);
   } catch (err) {
     return fail(res, 'campaign_leads_failed', req.user.id, err, 'Could not add the recipients');
+  }
+});
+
+/**
+ * POST /api/campaigns/:id/generate — draft an email for every pending recipient.
+ *
+ * ASYNC BY CONTRACT (CLAUDE.md). Ownership, the campaign's shape and the voice
+ * profile are all resolved before the response, so anything the caller can fix
+ * comes back as a 4xx; then the run continues in the background and the browser
+ * polls GET /api/campaigns/:id, where each lead flips to `generated` or `failed`
+ * as it lands.
+ *
+ * `prepared` is opaque to this route — it carries the user's decrypted voice
+ * exemplars, so it is handed straight back to the service and never serialized.
+ * The response body is ids and counts.
+ *
+ * NOTHING FROM A LEAD OR A DRAFT IS LOGGED, here or in the failure path.
+ */
+router.post('/campaigns/:id/generate', requireAuth, async (req, res) => {
+  const campaignId = campaignIdOf(req);
+  if (!campaignId) return res.status(400).json({ error: 'Invalid campaign id' });
+
+  const { goal } = bodyOf(req);
+
+  try {
+    const prepared = await beginCampaignGeneration(req.user.id, campaignId, goal);
+
+    // Deliberately not awaited: the response goes out first. Per-lead failures
+    // are already contained inside the run, so a rejection here is a run-level
+    // fault with no client left to receive it — log the status, never the error.
+    runCampaignGeneration(prepared).catch((err) => {
+      logger.error('campaign_generate_failed', {
+        userId: req.user.id,
+        campaignId,
+        status: Number(err?.status) || 500,
+        name: err?.name
+      });
+    });
+
+    return res.status(202).json({
+      campaignId,
+      status: 'generating',
+      pending: prepared.pending
+    });
+  } catch (err) {
+    return fail(res, 'campaign_generate_failed', req.user.id, err, 'Could not start generating');
   }
 });
 
