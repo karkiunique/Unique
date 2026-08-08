@@ -31,10 +31,10 @@ export const DRAFT_SYSTEM_PROMPT = [
   '',
   'ALWAYS SIGN THE EMAIL. The body ends with their closing line and then their own',
   'name, exactly as they sign it in the real emails. Nothing comes after the name:',
-  'no job title, no company, no phone number, no links, no postscript and no',
-  'unsubscribe line — those blocks were stripped out of the samples on purpose, and',
-  'their absence is not licence to leave the email unsigned. A closing with no name,',
-  'a bare "Best," on the last line, is a failed draft.',
+  'no job title, no company, no phone number, no links and no postscript — those',
+  'blocks were stripped out of the samples on purpose, and their absence is not',
+  'licence to leave the email unsigned. A closing with no name, a bare "Best," on',
+  'the last line, is a failed draft.',
   '',
   'Return ONLY a single JSON object, no prose and no markdown fences:',
   '{"subject": "", "body": ""}'
@@ -121,7 +121,6 @@ export const FIDELITY_SYSTEM_PROMPT = [
   '5. punctuation, capitalization quirks, contractions, vocabulary register',
   '',
   'Judge mechanics, not quality. A well-written email in the wrong voice scores low.',
-  'Ignore any trailing unsubscribe line — it is added by the system, not the writer.',
   '',
   'Return ONLY this JSON object, no prose and no markdown fences:',
   '{"score_0to100": 0, "violations": ["specific, actionable mismatches"]}'

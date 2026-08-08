@@ -5,13 +5,18 @@ import { requireAuth } from '../middleware/auth.js';
 import { generateEmail } from '../services/generate.js';
 import { sendEmail } from '../services/send.js';
 import { verifyRecipient } from '../services/recipientCheck.js';
-import { listSentThreads } from '../services/threads.js';
+import { listSentThreads, getSentThread } from '../services/threads.js';
 import { safeMessage } from '../lib/httpError.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
 
 const THREAD_LIMIT = 25;
+const MAX_QUERY_LENGTH = 200;
+// Gmail ids are opaque; this only rejects shapes that could not be one.
+const GMAIL_ID = /^[A-Za-z0-9_-]{1,256}$/;
+// An RFC 2822 Message-ID, with or without its angle brackets.
+const MESSAGE_ID_HEADER = /^<?[^\s<>]{1,500}>?$/;
 
 /** Each call costs a DNS lookup, so this sits well below the global limit. */
 const verifyLimiter = rateLimit({
@@ -92,6 +97,10 @@ router.post('/send/generate', requireAuth, async (req, res) => {
  * The route also sends EXACTLY the subject and body it was handed. It does not
  * regenerate, rewrite, or re-fetch anything between confirmation and send —
  * otherwise the user would approve one email and a different one would go out.
+ *
+ * A follow-up is the same send, not a second route: pass the optional threadId /
+ * inReplyTo and it lands in that Gmail thread. Deliberately ONE path to a real
+ * send, so there is exactly one gate to keep watertight.
  */
 router.post('/send', requireAuth, async (req, res) => {
   const payload = bodyOf(req);
@@ -103,13 +112,21 @@ router.post('/send', requireAuth, async (req, res) => {
   const to = text(payload.to);
   const subject = text(payload.subject);
   const body = typeof payload.body === 'string' ? payload.body : '';
+  const threadId = text(payload.threadId);
+  const inReplyTo = text(payload.inReplyTo);
 
   if (to === '') return res.status(400).json({ error: 'A recipient email address is required' });
   if (subject === '') return res.status(400).json({ error: 'A subject is required' });
   if (body.trim() === '') return res.status(400).json({ error: 'A body is required' });
+  if (threadId !== '' && !GMAIL_ID.test(threadId)) {
+    return res.status(400).json({ error: 'Invalid thread id' });
+  }
+  if (inReplyTo !== '' && !MESSAGE_ID_HEADER.test(inReplyTo)) {
+    return res.status(400).json({ error: 'Invalid in-reply-to message id' });
+  }
 
   try {
-    const result = await sendEmail(req.user.id, { to, subject, body });
+    const result = await sendEmail(req.user.id, { to, subject, body, threadId, inReplyTo });
     return res.status(200).json(result);
   } catch (err) {
     return fail(res, 'send_failed', req.user.id, err, 'Could not send the email');
@@ -149,13 +166,46 @@ router.post('/send/verify-recipient', verifyLimiter, requireAuth, async (req, re
   }
 });
 
-/** GET /api/threads — sent threads plus reply state, derived from Gmail on read. */
+/**
+ * GET /api/threads — the register: mail sent FROM UNIQUE, plus reply state.
+ *
+ * Thread ids come from send_log, so the user's personal Gmail never appears here.
+ * `q` is an optional case-insensitive filter over subject and recipient; it is
+ * matched in memory and never logged — it names who the user is looking for.
+ */
 router.get('/threads', requireAuth, async (req, res) => {
+  const query = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
+
+  if (query.length > MAX_QUERY_LENGTH) {
+    return res.status(400).json({ error: 'Search query is too long' });
+  }
+
   try {
-    const threads = await listSentThreads(req.user.id, { limit: THREAD_LIMIT });
+    const threads = await listSentThreads(req.user.id, { limit: THREAD_LIMIT, query });
     return res.status(200).json({ threads });
   } catch (err) {
     return fail(res, 'threads_failed', req.user.id, err, 'Could not load your sent threads');
+  }
+});
+
+/**
+ * GET /api/threads/:threadId — one thread in full, bodies included.
+ *
+ * 404 unless the thread is in THIS user's send_log. That check runs before Gmail
+ * is touched, which is what stops a guessed id from reading somebody else's mail.
+ */
+router.get('/threads/:threadId', requireAuth, async (req, res) => {
+  const threadId = text(req.params.threadId);
+
+  if (threadId === '' || !GMAIL_ID.test(threadId)) {
+    return res.status(400).json({ error: 'Invalid thread id' });
+  }
+
+  try {
+    const thread = await getSentThread(req.user.id, threadId);
+    return res.status(200).json(thread);
+  } catch (err) {
+    return fail(res, 'thread_detail_failed', req.user.id, err, 'Could not load that thread');
   }
 });
 

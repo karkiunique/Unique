@@ -28,7 +28,6 @@ const { generateEmail, findBannedPhrases, MIN_FIDELITY_SCORE } = await import(
   '../src/services/generate.js'
 );
 const { encrypt } = await import('../src/lib/crypto.js');
-const { verifyToken } = await import('../src/lib/unsubscribe.js');
 const { logger } = await import('../src/lib/logger.js');
 
 const KEY = Buffer.alloc(32, 13).toString('base64');
@@ -211,7 +210,11 @@ describe('generateEmail', () => {
     expect(result.fidelityScore).toBe(80);
   });
 
-  it('appends the unsubscribe line with a token that verifies back to user and recipient', async () => {
+  // Decisions, 2026-08-06: no unsubscribe footer on a 1:1 compose send. On a
+  // single human-confirmed email the line reads as machine-generated. The signed
+  // token, the route and the public page all stay for Phase 4 batch sending —
+  // it is only the automatic append that is gone.
+  it('appends no unsubscribe footer: the body is exactly what the model wrote', async () => {
     mockProfileRow();
     create
       .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
@@ -219,12 +222,12 @@ describe('generateEmail', () => {
 
     const result = await generateEmail('user-1', { to: TO, goal: GOAL });
 
-    expect(result.body).toContain(
-      "\n\nDon't want emails from me? [Unsubscribe](http://localhost:5173/u/"
-    );
-
-    const token = result.body.split('/u/')[1].replace(/\)\s*$/, '');
-    expect(verifyToken(token)).toEqual({ u: 'user-1', e: TO });
+    expect(result.body).toBe(SIGNED_BODY);
+    expect(result.body).not.toContain("Don't want emails from me?");
+    expect(result.body).not.toContain('[Unsubscribe]');
+    expect(result.body).not.toContain('/u/');
+    // Nothing follows the sign-off — the email ends on the user's own name.
+    expect(result.body.trimEnd().endsWith('Ana')).toBe(true);
   });
 
   it('decrypts the exemplars into the prompt and never logs them', async () => {

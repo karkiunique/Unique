@@ -1,7 +1,6 @@
 import { getAnthropic, getModel } from '../lib/anthropic.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
-import { signToken } from '../lib/unsubscribe.js';
 import { loadProfileWithExemplars, parseProfileJson } from './voice.js';
 import { findMissingSignoff } from './signoff.js';
 import {
@@ -42,7 +41,6 @@ const BANNED_SUBJECT = 'quick question';
 
 const DRAFT_MAX_TOKENS = 1200;
 const FIDELITY_MAX_TOKENS = 500;
-const DEFAULT_APP_URL = 'http://localhost:5173';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function extractText(response) {
@@ -141,17 +139,6 @@ async function scoreFidelity(context, draft) {
   return { score, violations };
 }
 
-function appUrl() {
-  return (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '');
-}
-
-/** CLAUDE.md §3: every generated body ends with exactly this line. */
-export function appendUnsubscribeLine(body, userId, to) {
-  const token = signToken({ u: userId, e: to });
-
-  return `${body.replace(/\s+$/, '')}\n\nDon't want emails from me? [Unsubscribe](${appUrl()}/u/${token})`;
-}
-
 /**
  * Draft one email for one recipient. Returns the fidelity score alongside the
  * draft so the review UI can warn before a human confirms the send.
@@ -213,7 +200,7 @@ export async function generateEmail(userId, input = {}) {
 
   return {
     subject: draft.subject,
-    body: appendUnsubscribeLine(draft.body, userId, to),
+    body: draft.body,
     fidelityScore: fidelity.score,
     violations
   };

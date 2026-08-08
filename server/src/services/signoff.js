@@ -13,8 +13,10 @@
  */
 
 const TAIL_LINES = 4;
-// The line appendUnsubscribeLine() adds. Stripped before the tail is read: it is
-// written by the system, so it can never be the writer's sign-off.
+// A trailing unsubscribe footer, stripped before the tail is read: it is written
+// by the system, so it can never be the writer's sign-off. Compose no longer
+// appends one (Decisions, 2026-08-06) and this is then a no-op — but Phase 4
+// batch sending reinstates the footer, and the check must read the same either way.
 const UNSUBSCRIBE_TAIL = /\n+don[’']?t want emails from me\?[\s\S]*$/i;
 // A closing that ends on a comma or a dash is waiting for a name. One that ends
 // on a word ("cheers", or the name itself) already stands on its own.

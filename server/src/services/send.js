@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { getAuthedClient } from './gmail.js';
+import { recordSend, ownsThread } from './sendLog.js';
 
 /**
  * Sending one confirmed email through the user's own Gmail account.
@@ -51,6 +52,25 @@ function sanitizeHeader(value) {
   return String(value).replace(/[\r\n]+/g, ' ').trim();
 }
 
+/** An RFC 2822 Message-ID travels in angle brackets. Add them if the caller's value lacks them. */
+function normalizeMessageId(value) {
+  const clean = sanitizeHeader(value).replace(/\s+/g, '');
+  if (clean === '') return '';
+
+  return /^<.+>$/.test(clean) ? clean : `<${clean}>`;
+}
+
+/**
+ * "Re: " once, never twice. Applied ONLY to a follow-up, where the user is
+ * knowingly replying inside an existing thread — a first send still goes out with
+ * exactly the subject that was confirmed.
+ */
+export function withReplyPrefix(subject) {
+  const clean = String(subject).trim();
+
+  return /^re\s*:/i.test(clean) ? clean : `Re: ${clean}`;
+}
+
 /** RFC 2047 encoded-word, applied only when the value is not plain ASCII. */
 export function encodeHeaderValue(value) {
   const clean = sanitizeHeader(value);
@@ -81,6 +101,13 @@ export function buildMimeMessage(message = {}) {
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: 8bit'
   ];
+
+  // Threading for the RECIPIENT'S client. Gmail's own threadId (passed on the send
+  // call) only groups the thread on our side — both halves are needed.
+  const inReplyTo = normalizeMessageId(message.inReplyTo ?? '');
+  if (inReplyTo !== '') {
+    headers.push(`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`);
+  }
 
   const normalizedBody = String(body).replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
 
@@ -181,6 +208,11 @@ async function raiseGmailError(userId, err) {
 /**
  * Send exactly this subject and body to exactly this recipient, from the
  * connected account. Returns the Gmail ids so reply detection can find the thread.
+ *
+ * A follow-up is the same send: pass `threadId` (and the `inReplyTo` Message-ID of
+ * the message being answered) and it lands in that Gmail thread instead of
+ * starting a new one. There is deliberately no second send function — one code
+ * path to gmail.users.messages.send, one confirmation gate in front of it.
  */
 export async function sendEmail(userId, input = {}) {
   if (typeof userId !== 'string' || userId === '') {
@@ -188,14 +220,27 @@ export async function sendEmail(userId, input = {}) {
   }
 
   const to = typeof input.to === 'string' ? input.to.trim() : '';
-  const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
   const body = typeof input.body === 'string' ? input.body : '';
+  const replyToThreadId = typeof input.threadId === 'string' ? input.threadId.trim() : '';
+  const inReplyTo = typeof input.inReplyTo === 'string' ? input.inReplyTo.trim() : '';
+
+  const confirmedSubject = typeof input.subject === 'string' ? input.subject.trim() : '';
+  const subject =
+    replyToThreadId === '' || confirmedSubject === ''
+      ? confirmedSubject
+      : withReplyPrefix(confirmedSubject);
 
   if (!EMAIL_PATTERN.test(to)) {
     throw httpError(400, 'A valid recipient email address is required');
   }
   if (subject === '') throw httpError(400, 'A subject is required');
   if (body.trim() === '') throw httpError(400, 'A body is required');
+
+  // Auth-scope the thread before anything else touches Gmail: a follow-up may only
+  // continue a thread this user sent from Unique. Same control as the detail view.
+  if (replyToThreadId !== '' && !(await ownsThread(userId, replyToThreadId))) {
+    throw httpError(404, 'Thread not found');
+  }
 
   const auth = await getAuthedClient(userId);
   const gmail = google.gmail({ version: 'v1', auth });
@@ -209,19 +254,24 @@ export async function sendEmail(userId, input = {}) {
   }
   if (from === '') throw httpError(502, 'Could not read the connected Gmail address');
 
-  const raw = Buffer.from(buildMimeMessage({ from, to, subject, body }), 'utf8').toString(
-    'base64url'
-  );
+  const mime = buildMimeMessage({ from, to, subject, body, inReplyTo });
+  const raw = Buffer.from(mime, 'utf8').toString('base64url');
+
+  const requestBody = { raw };
+  if (replyToThreadId !== '') requestBody.threadId = replyToThreadId;
 
   let response;
   try {
-    response = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    response = await gmail.users.messages.send({ userId: 'me', requestBody });
   } catch (err) {
     await raiseGmailError(userId, err);
   }
 
   const messageId = typeof response?.data?.id === 'string' ? response.data.id : null;
   const threadId = typeof response?.data?.threadId === 'string' ? response.data.threadId : null;
+
+  // Fails open on purpose — the mail is already gone. See recordSend().
+  await recordSend(userId, { messageId, threadId });
 
   logger.info('email_sent', { userId, messageId, threadId });
 

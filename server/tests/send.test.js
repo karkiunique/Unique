@@ -107,6 +107,13 @@ function mockProfileChain(readResult) {
           return { data: null, error: null };
         }
       };
+    },
+    // The send_log record written after a successful send (migration 003). Ids
+    // only; the follow-up and register behaviour it feeds is covered in
+    // sendFollowUp.test.js.
+    upsert: async (payload) => {
+      capture.upsert = payload;
+      return { data: null, error: null };
     }
   });
   return capture;
