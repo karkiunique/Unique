@@ -335,6 +335,41 @@ describe('ConfirmSendDialog — following up inside a thread', () => {
     });
   });
 
+  /**
+   * The dialog is the last place a subject may be touched, so it touches none:
+   * the caller hands it the final string — "Re: " and all — and it displays and
+   * posts that. FollowUpForm owns the prefix precisely so it lands before this
+   * screen renders; see ThreadFollowUp.test.jsx for that guarantee end to end.
+   */
+  it('adds nothing to the subject of a follow-up — no "Re: " appears here', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    const { container } = renderFollowUp({ subject: `Re: ${SUBJECT}` });
+
+    expect(container.querySelector('.confirm-subject').textContent).toBe(`Re: ${SUBJECT}`);
+
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost.mock.calls[0][1].subject).toBe(`Re: ${SUBJECT}`);
+    // One prefix, because the caller supplied one. The dialog never stacks another.
+    expect(apiPost.mock.calls[0][1].subject).not.toMatch(/^re:\s*re:/i);
+  });
+
+  it('passes a plain subject through untouched even with the threading props set', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    const { container } = renderFollowUp();
+
+    const shownSubject = container.querySelector('.confirm-subject').textContent;
+    expect(shownSubject).toBe(SUBJECT);
+
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost.mock.calls[0][1].subject).toBe(shownSubject);
+  });
+
   it('disables the send button while a follow-up is in flight', async () => {
     const pending = deferred();
     apiPost.mockReturnValue(pending.promise);

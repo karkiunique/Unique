@@ -8,6 +8,7 @@ import Icon from '../components/Icon.jsx';
 import RecipientFlag from '../components/RecipientFlag.jsx';
 import { PageHead } from '../components/Shell.jsx';
 import { api } from '../lib/api.js';
+import { normaliseSubject } from '../lib/subject.js';
 import { useAutoGrow } from '../lib/useAutoGrow.js';
 import { useRecipientCheck } from '../lib/useRecipientCheck.js';
 
@@ -106,6 +107,10 @@ export default function ComposePage() {
   }
 
   const recipient = to.trim();
+  // Trimmed before the confirmation shows it, not after it is approved: the
+  // server trims too, and a subject the user never saw trimmed is a subject they
+  // never actually read.
+  const letterSubject = normaliseSubject(subject);
   const addressee = recipientName.trim() || recipient;
   const canGenerate = recipient !== '' && goal.trim() !== '' && !busy;
   const scored = typeof fidelityScore === 'number';
@@ -288,7 +293,7 @@ export default function ComposePage() {
         <ConfirmSendDialog
           to={recipient}
           recipientName={recipientName.trim()}
-          subject={subject}
+          subject={letterSubject}
           body={body}
           onCancel={() => setConfirming(false)}
           onWriteAnother={reset}

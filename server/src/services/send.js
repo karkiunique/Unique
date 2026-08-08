@@ -61,9 +61,13 @@ function normalizeMessageId(value) {
 }
 
 /**
- * "Re: " once, never twice. Applied ONLY to a follow-up, where the user is
- * knowingly replying inside an existing thread — a first send still goes out with
- * exactly the subject that was confirmed.
+ * "Re: " once, never twice. A BACKSTOP, not the source of truth: the client
+ * applies this same rule before the confirmation dialog renders, so a subject
+ * that came through that dialog already carries its prefix and this leaves it
+ * alone. Any future caller that skips the dialog still threads correctly.
+ *
+ * It must stay idempotent for exactly that reason — the confirmed string is the
+ * user's, and nothing here may rewrite what they approved.
  */
 export function withReplyPrefix(subject) {
   const clean = String(subject).trim();
@@ -224,6 +228,9 @@ export async function sendEmail(userId, input = {}) {
   const replyToThreadId = typeof input.threadId === 'string' ? input.threadId.trim() : '';
   const inReplyTo = typeof input.inReplyTo === 'string' ? input.inReplyTo.trim() : '';
 
+  // The client trims and prefixes the subject BEFORE the user confirms it, so
+  // both steps below are no-ops for anything that came through the confirmation
+  // dialog. They remain as a backstop for a caller that did not.
   const confirmedSubject = typeof input.subject === 'string' ? input.subject.trim() : '';
   const subject =
     replyToThreadId === '' || confirmedSubject === ''

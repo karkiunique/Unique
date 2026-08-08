@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-07 | Node v20.20.2 | branch feat/phase-2
-# Totals: server=414, web=149, combined=563
+# Updated: 2026-08-08 | Node v20.20.2 | branch feat/phase-3
+# Totals: server=452, web=199, combined=651
 
-### SERVER (/server, vitest, 414 tests) ###
+### SERVER (/server, vitest, 452 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -38,6 +38,15 @@ tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > forwards only the edit
 tests/campaignRoutes.test.js > POST /api/campaigns > creates the campaign for the authenticated user
 tests/campaignRoutes.test.js > POST /api/campaigns > ignores a user_id in the body — the owner is the token, always
 tests/campaignRoutes.test.js > POST /api/campaigns > returns the service status and message for invalid input
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s above the row cap and never reaches the service
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s cleanly on an empty rows array
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s on an id that is not a campaign id
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 400s when rows is missing or not an array, rather than 500ing
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 401s without a token, without reaching the service
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > 404s when the campaign is not the caller's
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > forwards the rows for the authenticated user and returns the summary
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > logs ids and a count only — never a row
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > logs no row content when the upload fails either
 tests/campaignRoutes.test.js > campaign routes — authentication > 401s on every campaign route without a token
 tests/campaigns.test.js > campaign logging > logs ids and counts only — never a name, subject or template body
 tests/campaigns.test.js > createCampaign > creates a voice campaign with a null template body
@@ -207,6 +216,35 @@ tests/httpError.test.js > safeMessage > hides messages from plain errors
 tests/httpError.test.js > safeMessage > hides messages on 5xx even when they are ours
 tests/httpError.test.js > safeMessage > hides third-party SDK messages that happen to carry a status
 tests/httpError.test.js > safeMessage > returns our own 4xx messages
+tests/leads.test.js > addLeads — address verification is advisory > carries a DNS timeout through as 'unknown', never as invalid
+tests/leads.test.js > addLeads — address verification is advisory > does not let the representative address lend its role flag to its neighbours
+tests/leads.test.js > addLeads — address verification is advisory > flags a domain with no mail server but still inserts it
+tests/leads.test.js > addLeads — address verification is advisory > flags a role inbox per row even though its domain was checked once
+tests/leads.test.js > addLeads — address verification is advisory > resolves once per unique domain, not once per row
+tests/leads.test.js > addLeads — address verification is advisory > still completes the upload when verification itself falls over
+tests/leads.test.js > addLeads — duplicates are a no-op, not an error > compares case-insensitively and ignores surrounding whitespace
+tests/leads.test.js > addLeads — duplicates are a no-op, not an error > does not treat a lead on another campaign as a duplicate
+tests/leads.test.js > addLeads — duplicates are a no-op, not an error > skips an address already on the campaign
+tests/leads.test.js > addLeads — duplicates are a no-op, not an error > skips an address listed twice in the same upload, inserting it once
+tests/leads.test.js > addLeads — one bad row is that row s problem > rejects an address past the RFC 5321 length without touching the insert
+tests/leads.test.js > addLeads — one bad row is that row s problem > rejects the malformed rows and still inserts the good ones
+tests/leads.test.js > addLeads — owner scoping > 404s on a campaign that does not exist
+tests/leads.test.js > addLeads — owner scoping > 404s on another user's campaign and writes nothing
+tests/leads.test.js > addLeads — owner scoping > stamps every inserted row with the caller's id and the campaign from the URL
+tests/leads.test.js > addLeads — the envelope > 400s on an empty rows array rather than 500ing on it
+tests/leads.test.js > addLeads — the envelope > 400s when rows is not an array at all
+tests/leads.test.js > addLeads — the envelope > 400s without a userId or a campaign id
+tests/leads.test.js > addLeads — the envelope > accepts a request sitting exactly on the cap
+tests/leads.test.js > addLeads — the envelope > refuses more rows than the cap and inserts nothing
+tests/leads.test.js > addLeads — the happy path > inserts valid rows as 'pending'
+tests/leads.test.js > addLeads — the happy path > trims every value before it is stored
+tests/leads.test.js > addLeads — what a row is not allowed to carry > ignores a client-supplied status, user_id and campaign_id
+tests/leads.test.js > addLeads — what a row is not allowed to carry > never lets an unknown column reach the insert
+tests/leads.test.js > checkLeadAddresses > gives every row on a dead domain the same verdict from one lookup
+tests/leads.test.js > checkLeadAddresses > returns 'ok' with no reasons for a healthy address
+tests/leads.test.js > checkLeadAddresses > returns an empty list for an empty input without asking the resolver
+tests/leads.test.js > lead upload logging > logs ids and counts only — never an address, name, company or title
+tests/leads.test.js > lead upload logging > logs nothing at all when the campaign is not the caller s
 tests/logger.test.js > logger > sends errors to console.error
 tests/logger.test.js > logger > writes a single structured JSON line without disallowed fields
 tests/logger.test.js > sanitizeMeta > drops fields that are not allowlisted (e.g. email bodies)
@@ -418,7 +456,7 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest, 149 tests) ###
+### WEB (/web, vitest, 199 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
 tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
 tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
@@ -438,6 +476,19 @@ tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > posts 
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > renders the server message when the create fails, and stays put
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts a merge var at the cursor
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts in the middle of the template, not at the end
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — bounce risk is advisory > flags a dead domain without blocking anything, and adds it anyway
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — bounce risk is advisory > reads a lookup that did not finish as unchecked, not as a bad address
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — column mapping > needs no manual mapping for a well-formed file
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — column mapping > re-maps a column by hand and redraws the preview
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — column mapping > shows the preview as the rows will actually be stored, trimmed
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — the email column is the one requirement > blocks the upload until an email column is mapped
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — the email column is the one requirement > counts the rows that have no address instead of hiding them
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — the email column is the one requirement > names an empty file as empty rather than as a missing column
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > re-bases the row numbers each batch reports, so they point at the file
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > sends a long file in batches and adds the results up
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > shows what was added, what was skipped and what was rejected
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > tells the campaign to reload once the recipients are in
+tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > tells the user when the server refused the upload
 tests/CampaignsPage.test.jsx > CampaignsPage > loads the campaigns on mount
 tests/CampaignsPage.test.jsx > CampaignsPage > marks each campaign with its mode
 tests/CampaignsPage.test.jsx > CampaignsPage > navigates to a campaign when its row is clicked
@@ -460,6 +511,7 @@ tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > di
 tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > hands the confirm dialog exactly what is in the fields
 tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > lets a hand-written email reach the confirm step without generating
 tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > never calls /send itself — only the confirm dialog does
+tests/ComposePage.test.jsx > ComposePage — reaching the confirmation step > trims the subject before showing it, then sends exactly what it showed
 tests/ComposePage.test.jsx > ComposePage — recipient verification > checks the address on blur, not on every keystroke
 tests/ComposePage.test.jsx > ComposePage — recipient verification > clears the flag as soon as the address changes
 tests/ComposePage.test.jsx > ComposePage — recipient verification > does NOT present the address as bad when the check could not complete
@@ -487,9 +539,11 @@ tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > disables the send button while in flight so it cannot double-send
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > renders the server error message and re-enables the button
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > Cancel on a follow-up sends nothing
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > adds nothing to the subject of a follow-up — no "Re: " appears here
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > disables the send button while a follow-up is in flight
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > does NOT call /send on render with threading props — only on the Send click
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > lets the caller name the way out after the send, defaulting to "Write another"
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > passes a plain subject through untouched even with the threading props set
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > sends no threadId or inReplyTo for an ordinary first send
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > sends the displayed To, Subject and Body byte-for-byte, plus the thread ids
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > still says "Write another" when no label is given
@@ -532,7 +586,6 @@ tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders a null profil
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the dossier including never_does entries
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the verbatim clipping lists, the pull-quote and emoji usage
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > does NOT call /send when the dialog opens — only the approve click sends
-tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > does not double-prefix the subject — the server owns the "Re: "
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > opens ConfirmSendDialog, not a confirmation of its own
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > prefills the recipient from whoever spoke last in the thread
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > sends the thread ids, the confirmation, and the body exactly as displayed
@@ -541,6 +594,10 @@ tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the d
 tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > disables the send button while the follow-up is in flight
 tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > posts nothing while browsing, opening and abandoning the composer
 tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > will not open the dialog on an empty body, so there is nothing to approve
+tests/ThreadFollowUp.test.jsx > Follow-up — the subject shown is the subject sent > does not double-prefix a thread that already reads "Re: "
+tests/ThreadFollowUp.test.jsx > Follow-up — the subject shown is the subject sent > leaves an existing prefix in the casing the thread already uses
+tests/ThreadFollowUp.test.jsx > Follow-up — the subject shown is the subject sent > shows the "Re: " before the user approves, and sends that exact string
+tests/ThreadFollowUp.test.jsx > Follow-up — the subject shown is the subject sent > trims a ragged thread subject before it is read, not after it is approved
 tests/ThreadsPage.test.jsx > ThreadsPage > loads sent threads on mount
 tests/ThreadsPage.test.jsx > ThreadsPage > makes plain that this is reply detection on sent mail, not an inbox
 tests/ThreadsPage.test.jsx > ThreadsPage > polls every 30 seconds and clears the interval on unmount
@@ -568,3 +625,34 @@ tests/UnsubscribePage.test.jsx > UnsubscribePage > renders a calm invalid state 
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the already-removed state for { status: 'already' } and does not call it an error
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the invalid state when the path carries no token, without calling the API
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the removed state for { status: 'unsubscribed' }
+tests/csv.test.js > decodeCsvFile — encoding > accepts an ArrayBuffer as well as a byte view, and an empty file as empty text
+tests/csv.test.js > decodeCsvFile — encoding > decodes a windows-1252 file to the right characters rather than mojibake
+tests/csv.test.js > decodeCsvFile — encoding > does not mistake valid multi-byte UTF-8 for latin-1
+tests/csv.test.js > decodeCsvFile — the byte-order mark > takes the BOM off before the windows-1252 fallback, where it would become mojibake
+tests/csv.test.js > decodeCsvFile — the byte-order mark > takes the mark off at the BYTE level, so it is gone whichever decoder then runs
+tests/csv.test.js > guessMapping > maps a header padded with spaces
+tests/csv.test.js > guessMapping > maps by name, so the column order makes no difference
+tests/csv.test.js > guessMapping > never gives one column to two fields
+tests/csv.test.js > guessMapping > recognises the names the same columns are given in the wild
+tests/csv.test.js > guessMapping > reports no email column when the file simply has not got one
+tests/csv.test.js > normaliseHeader > reduces one column name written every which way to a single key
+tests/csv.test.js > parseCsv — files with nothing in them > says a headings-only file has no rows, which is a different problem
+tests/csv.test.js > parseCsv — files with nothing in them > says an empty file is empty
+tests/csv.test.js > parseCsv — rows that do not agree with the heading row > keeps commas and newlines that live inside a quoted field
+tests/csv.test.js > parseCsv — rows that do not agree with the heading row > reports a row with too few fields and still keeps the rest of the file
+tests/csv.test.js > parseCsv — rows that do not agree with the heading row > reports a row with too many fields and drops only the overflow
+tests/csv.test.js > parseCsv — rows that do not agree with the heading row > reports an unbalanced quote instead of throwing on it
+tests/csv.test.js > partitionRows > copes with nothing at all
+tests/csv.test.js > partitionRows > separates the rows with no email rather than dropping them
+tests/csv.test.js > toRows > follows a column re-mapped by hand rather than the guess
+tests/csv.test.js > toRows > ignores the columns nobody mapped
+tests/csv.test.js > toRows > trims every value it takes
+tests/subject.test.js > normaliseSubject > leaves an already-clean subject byte-for-byte alone
+tests/subject.test.js > normaliseSubject > treats whitespace-only and non-strings as no subject at all
+tests/subject.test.js > normaliseSubject > trims the subject the user typed
+tests/subject.test.js > withReplyPrefix > does not mistake a word starting with "re" for the prefix
+tests/subject.test.js > withReplyPrefix > is idempotent — applying it twice changes nothing
+tests/subject.test.js > withReplyPrefix > leaves an already-prefixed subject alone, whatever its casing
+tests/subject.test.js > withReplyPrefix > never invents a bare "Re:" out of an empty subject
+tests/subject.test.js > withReplyPrefix > prefixes a plain thread subject once
+tests/subject.test.js > withReplyPrefix > trims before prefixing, so the result carries no stray whitespace

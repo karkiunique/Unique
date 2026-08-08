@@ -24,6 +24,8 @@ const { default: ThreadsPage } = await import('../src/pages/ThreadsPage.jsx');
 
 const THREAD_ID = 't-1';
 const SUBJECT = 'about the launch';
+/** What a follow-up on that thread is both SHOWN as and SENT as. */
+const PREFIXED_SUBJECT = 'Re: about the launch';
 const RECIPIENT = 'sam@corp.com';
 const LAST_MESSAGE_ID = '<m2@mail.example>';
 
@@ -101,6 +103,26 @@ async function writeFollowUp(user, body = FOLLOW_UP_BODY) {
   await user.type(screen.getByLabelText('Follow-up body'), body);
 }
 
+/** The same walk, carried all the way to the final read. */
+async function openConfirmation(user) {
+  await writeFollowUp(user);
+  await user.click(screen.getByRole('button', REVIEW));
+  await screen.findByText('Send this letter?');
+}
+
+/**
+ * The register list keeps its own subject, so only the thread's own subject
+ * changes — the row the walk clicks on stays findable either way.
+ */
+function serveThreadSubject(subject) {
+  const [first, ...rest] = DETAIL.messages;
+  const detail = { ...DETAIL, messages: [{ ...first, subject }, ...rest] };
+
+  apiGet.mockImplementation((path) =>
+    path.startsWith('/threads/') ? Promise.resolve(detail) : Promise.resolve({ threads: THREADS })
+  );
+}
+
 beforeEach(() => {
   apiGet.mockReset();
   apiPost.mockReset();
@@ -125,7 +147,7 @@ describe('Follow-up — it goes through the shared confirmation dialog', () => {
     expect(screen.getByText('Send this letter?')).toBeInTheDocument();
     expect(screen.getByRole('button', SEND)).toBeInTheDocument();
     expect(container.querySelector('.confirm-to').textContent).toBe(RECIPIENT);
-    expect(container.querySelector('.confirm-subject').textContent).toBe(SUBJECT);
+    expect(container.querySelector('.confirm-subject').textContent).toBe(PREFIXED_SUBJECT);
     expect(container.querySelector('.confirm-body').textContent).toBe(FOLLOW_UP_BODY);
   });
 
@@ -176,20 +198,6 @@ describe('Follow-up — it goes through the shared confirmation dialog', () => {
     });
   });
 
-  it('does not double-prefix the subject — the server owns the "Re: "', async () => {
-    const user = userEvent.setup();
-
-    render(<ThreadsPage />);
-    await writeFollowUp(user);
-    await user.click(screen.getByRole('button', REVIEW));
-    await screen.findByText('Send this letter?');
-    await user.click(screen.getByRole('button', SEND));
-
-    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
-    expect(apiPost.mock.calls[0][1].subject).toBe(SUBJECT);
-    expect(apiPost.mock.calls[0][1].subject).not.toMatch(/^Re:/);
-  });
-
   it('prefills the recipient from whoever spoke last in the thread', async () => {
     const user = userEvent.setup();
 
@@ -222,6 +230,96 @@ describe('Follow-up — it goes through the shared confirmation dialog', () => {
 
     expect(await screen.findByText('msg-9')).toBeInTheDocument();
     await waitFor(() => expect(detailRequests()).toHaveLength(2));
+  });
+});
+
+/**
+ * The subject gets the same guarantee the body already has: what is SHOWN is what
+ * is SENT, byte for byte.
+ *
+ * These tests drive the real FollowUpForm -> ConfirmSendDialog path rather than
+ * the dialog on its own, and that is deliberate. A byte-for-byte assertion inside
+ * the dialog alone proves nothing here: if the "Re: " went back to being added
+ * server-side, the dialog would show "X" and post "X" — still equal at that layer
+ * — while the user again approved one subject and sent another. So each test below
+ * pins the RENDERED string to the prefixed value first, then compares the payload
+ * against what was rendered.
+ */
+describe('Follow-up — the subject shown is the subject sent', () => {
+  function shownSubjectIn(container) {
+    return container.querySelector('.confirm-subject').textContent;
+  }
+
+  function sentSubject() {
+    return apiPost.mock.calls[0][1].subject;
+  }
+
+  it('shows the "Re: " before the user approves, and sends that exact string', async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(<ThreadsPage />);
+    await openConfirmation(user);
+
+    // The user actually read the prefix. Move it back to the server and this line
+    // fails, which is the whole point of asserting it here.
+    const shown = shownSubjectIn(container);
+    expect(shown).toBe(PREFIXED_SUBJECT);
+
+    await user.click(screen.getByRole('button', SEND));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+
+    // Compared against what was on screen, not against a constant.
+    expect(sentSubject()).toBe(shown);
+    expect(sentSubject()).toBe(PREFIXED_SUBJECT);
+  });
+
+  it('does not double-prefix a thread that already reads "Re: "', async () => {
+    serveThreadSubject(PREFIXED_SUBJECT);
+    const user = userEvent.setup();
+
+    const { container } = render(<ThreadsPage />);
+    await openConfirmation(user);
+
+    const shown = shownSubjectIn(container);
+    expect(shown).toBe(PREFIXED_SUBJECT);
+    expect(shown).not.toMatch(/^re:\s*re:/i);
+
+    await user.click(screen.getByRole('button', SEND));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+
+    expect(sentSubject()).toBe(shown);
+  });
+
+  it('leaves an existing prefix in the casing the thread already uses', async () => {
+    serveThreadSubject('RE: about the launch');
+    const user = userEvent.setup();
+
+    const { container } = render(<ThreadsPage />);
+    await openConfirmation(user);
+
+    const shown = shownSubjectIn(container);
+    expect(shown).toBe('RE: about the launch');
+
+    await user.click(screen.getByRole('button', SEND));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+
+    expect(sentSubject()).toBe(shown);
+  });
+
+  it('trims a ragged thread subject before it is read, not after it is approved', async () => {
+    serveThreadSubject('   about the launch  ');
+    const user = userEvent.setup();
+
+    const { container } = render(<ThreadsPage />);
+    await openConfirmation(user);
+
+    const shown = shownSubjectIn(container);
+    expect(shown).toBe(PREFIXED_SUBJECT);
+
+    await user.click(screen.getByRole('button', SEND));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+
+    expect(sentSubject()).toBe(shown);
   });
 });
 
