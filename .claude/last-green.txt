@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-06 | Node v20.20.2 | branch feat/phase-2
-# Totals: server=342, web=94, combined=436
+# Updated: 2026-08-07 | Node v20.20.2 | branch feat/phase-2
+# Totals: server=414, web=149, combined=563
 
-### SERVER (/server, vitest, 342 tests) ###
+### SERVER (/server, vitest, 414 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -29,6 +29,39 @@ tests/auth.test.js > requireAuth > 401s when Supabase returns no user
 tests/auth.test.js > requireAuth > 401s when no Authorization header is present
 tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
 tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/campaignRoutes.test.js > GET /api/campaigns > lists the caller's campaigns with counts
+tests/campaignRoutes.test.js > GET /api/campaigns/:id > 400s on an id that is not a campaign id, without touching the service
+tests/campaignRoutes.test.js > GET /api/campaigns/:id > 404s when the campaign is not the caller's
+tests/campaignRoutes.test.js > GET /api/campaigns/:id > returns the detail with its leads
+tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > 400s on a malformed campaign id
+tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > forwards only the editable fields
+tests/campaignRoutes.test.js > POST /api/campaigns > creates the campaign for the authenticated user
+tests/campaignRoutes.test.js > POST /api/campaigns > ignores a user_id in the body — the owner is the token, always
+tests/campaignRoutes.test.js > POST /api/campaigns > returns the service status and message for invalid input
+tests/campaignRoutes.test.js > campaign routes — authentication > 401s on every campaign route without a token
+tests/campaigns.test.js > campaign logging > logs ids and counts only — never a name, subject or template body
+tests/campaigns.test.js > createCampaign > creates a voice campaign with a null template body
+tests/campaigns.test.js > createCampaign > rejects a template with no {{personalized}} section
+tests/campaigns.test.js > createCampaign > rejects an empty or whitespace-only name
+tests/campaigns.test.js > createCampaign > rejects an over-long name
+tests/campaigns.test.js > createCampaign > rejects any mode that is not exactly 'voice' or 'template'
+tests/campaigns.test.js > createCampaign > rejects template mode with no template body at all
+tests/campaigns.test.js > createCampaign > requires a userId
+tests/campaigns.test.js > createCampaign > stores the template verbatim when it carries a {{personalized}} section
+tests/campaigns.test.js > getCampaign > 404s on an unknown campaign id
+tests/campaigns.test.js > getCampaign > 404s on another user's campaign, and filters both reads on user_id
+tests/campaigns.test.js > getCampaign > returns the campaign with its leads and counts
+tests/campaigns.test.js > getCampaign > scopes the lead read to the owner as well as the campaign
+tests/campaigns.test.js > listCampaigns > filters on user_id, in one query, newest first
+tests/campaigns.test.js > listCampaigns > returns sent and replied counts, and zero for a campaign with no leads
+tests/campaigns.test.js > updateCampaign > 400s when a patch carries nothing editable
+tests/campaigns.test.js > updateCampaign > 404s on another user's campaign and writes nothing
+tests/campaigns.test.js > updateCampaign > cannot change status, user_id, mode or id
+tests/campaigns.test.js > updateCampaign > carries user_id on the write itself, not just the ownership check
+tests/campaigns.test.js > updateCampaign > clears the subject template when it is emptied
+tests/campaigns.test.js > updateCampaign > rejects a template body on a voice campaign
+tests/campaigns.test.js > updateCampaign > rejects a template body that loses its {{personalized}} section
+tests/campaigns.test.js > updateCampaign > updates the name and subject template
 tests/corpusSummary.test.js > GET /api/voice/corpus-summary — auth > 401s when the token does not resolve to a user
 tests/corpusSummary.test.js > GET /api/voice/corpus-summary — auth > 401s without an Authorization header, and never touches Gmail
 tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > counts the corpus the voice builder would receive, skipping empty bodies
@@ -74,7 +107,7 @@ tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s when EN
 tests/generate.test.js > findBannedPhrases > allows "leverage" and "delve" when the user writes them themselves
 tests/generate.test.js > findBannedPhrases > bans "quick question" as a subject but not inside the body
 tests/generate.test.js > findBannedPhrases > flags every banned phrase in the subject or body
-tests/generate.test.js > generateEmail > appends the unsubscribe line with a token that verifies back to user and recipient
+tests/generate.test.js > generateEmail > appends no unsubscribe footer: the body is exactly what the model wrote
 tests/generate.test.js > generateEmail > decrypts the exemplars into the prompt and never logs them
 tests/generate.test.js > generateEmail > does not regenerate when the fidelity score clears the bar
 tests/generate.test.js > generateEmail > never echoes model output when the response is not JSON
@@ -258,6 +291,25 @@ tests/send.test.js > sendEmail — responding to a Gmail 403 > does NOT disconne
 tests/send.test.js > sendEmail — responding to a Gmail 403 > does NOT disconnect on a 403 with an unrecognised reason
 tests/send.test.js > sendEmail — responding to a Gmail 403 > does NOT disconnect on a rate-limit 403, and returns a retryable error
 tests/send.test.js > sendEmail — responding to a Gmail 403 > keeps Gmail's raw error text out of both the logs and the thrown message
+tests/sendFollowUp.test.js > POST /api/send — a follow-up is still gated > 400s a follow-up with confirmed omitted, and never calls Gmail send
+tests/sendFollowUp.test.js > POST /api/send — a follow-up is still gated > 400s a follow-up with confirmed:false or the string 'true'
+tests/sendFollowUp.test.js > POST /api/send — a follow-up is still gated > 400s an implausible threadId or inReplyTo with {error} JSON
+tests/sendFollowUp.test.js > POST /api/send — a follow-up is still gated > 404s a follow-up on a thread the user did not send from Unique
+tests/sendFollowUp.test.js > POST /api/send — a follow-up is still gated > sends the follow-up when confirmed is exactly true
+tests/sendFollowUp.test.js > follow-up logging > never logs the recipient or subject when the send_log write fails
+tests/sendFollowUp.test.js > follow-up logging > never logs the recipient, subject or body
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > 404s a threadId that is not in this user's send_log, before touching Gmail
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > does not double-prefix a subject that already starts with Re:
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > leaves a first send untouched — no Re:, no threading headers, no threadId
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > prefixes the subject with "Re: " exactly once
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > records the follow-up in send_log like any other send
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > sets In-Reply-To and References and passes the threadId to Gmail
+tests/sendFollowUp.test.js > sendEmail — follow-up in an existing thread > wraps a bare Message-ID in angle brackets
+tests/sendFollowUp.test.js > sendEmail — recording what we sent > does NOT fail the send when the send_log write rejects
+tests/sendFollowUp.test.js > sendEmail — recording what we sent > does NOT fail the send when the send_log write returns an error
+tests/sendFollowUp.test.js > sendEmail — recording what we sent > does not change the HTTP response when the send_log write fails
+tests/sendFollowUp.test.js > sendEmail — recording what we sent > writes the Gmail ids to send_log after a successful send
+tests/sendFollowUp.test.js > withReplyPrefix > adds "Re: " once and never twice
 tests/signoff.test.js > findMissingSignoff > accepts a closing that already carries the name
 tests/signoff.test.js > findMissingSignoff > accepts a one-word closing that stands on its own
 tests/signoff.test.js > findMissingSignoff > carries no email content in the violation it returns
@@ -269,6 +321,7 @@ tests/signoff.test.js > findMissingSignoff > ignores the appended unsubscribe li
 tests/signoff.test.js > findMissingSignoff > matches case-insensitively
 tests/signoff.test.js > findMissingSignoff > passes a body that closes and signs with a name
 tests/signoff.test.js > findMissingSignoff > passes a closing and name written on one line
+tests/signoff.test.js > findMissingSignoff > reads the sign-off correctly on a body with no unsubscribe footer
 tests/signoff.test.js > signoffStyles > drops blanks but keeps the usable entries
 tests/signoff.test.js > signoffStyles > returns the user's own closings
 tests/signoff.test.js > signoffStyles > survives a missing, empty or malformed list without throwing
@@ -278,16 +331,35 @@ tests/supabaseClient.test.js > getSupabaseAdmin > returns a real client exposing
 tests/supabaseClient.test.js > getSupabaseAdmin > throws a clear error when SUPABASE_SERVICE_ROLE_KEY is missing
 tests/supabaseClient.test.js > getSupabaseAdmin > throws a clear error when SUPABASE_URL is missing
 tests/supabaseClient.test.js > resetSupabaseAdmin > clears the memo so a later call builds a fresh client
+tests/threadDetail.test.js > GET /api/threads/:threadId > 400s an implausible thread id with {error} JSON
+tests/threadDetail.test.js > GET /api/threads/:threadId > 401s without a token, and never calls Gmail
+tests/threadDetail.test.js > GET /api/threads/:threadId > 404s a thread the user did not send from Unique
+tests/threadDetail.test.js > GET /api/threads/:threadId > returns the thread for its owner
+tests/threadDetail.test.js > getSentThread — authorization > 404s a threadId that is not in this user's send_log, and NEVER calls Gmail
+tests/threadDetail.test.js > getSentThread — authorization > 404s another user's threadId — one user cannot read another's mail
+tests/threadDetail.test.js > getSentThread — authorization > 404s when the thread has been deleted in Gmail since we sent it
+tests/threadDetail.test.js > getSentThread — authorization > requires a userId and a threadId
+tests/threadDetail.test.js > getSentThread — content > does NOT apply the ingestion cleaner — the user sees what was really sent
+tests/threadDetail.test.js > getSentThread — content > fetches format:full — the detail view needs the actual bodies
+tests/threadDetail.test.js > getSentThread — content > logs ids and a count only — never a subject, recipient or body
+tests/threadDetail.test.js > getSentThread — content > persists nothing — no insert, update, upsert or delete
+tests/threadDetail.test.js > getSentThread — content > returns each message with its headers and plain-text body
 tests/threads.test.js > extractAddress > pulls the address out of a display-name header
 tests/threads.test.js > listSentThreads — access shape > logs counts only, never subjects or recipients
+tests/threads.test.js > listSentThreads — access shape > omits a thread that exists in Gmail but is NOT in send_log
 tests/threads.test.js > listSentThreads — access shape > persists nothing — no insert, update, upsert or delete
-tests/threads.test.js > listSentThreads — access shape > queries in:sent only and never fetches message bodies
 tests/threads.test.js > listSentThreads — access shape > requires a userId
 tests/threads.test.js > listSentThreads — access shape > returns an empty list when nothing has been sent
+tests/threads.test.js > listSentThreads — access shape > skips a thread that is in send_log but has been deleted in Gmail
+tests/threads.test.js > listSentThreads — access shape > sources thread ids from send_log, never an in:sent search, and never fetches bodies
 tests/threads.test.js > listSentThreads — reply detection > does NOT mark a thread replied when every message is from the user
 tests/threads.test.js > listSentThreads — reply detection > marks a single-message thread as not replied
 tests/threads.test.js > listSentThreads — reply detection > marks a thread replied when a message is NOT from the user
 tests/threads.test.js > listSentThreads — reply detection > reports the send time of the first message in the thread
+tests/threads.test.js > listSentThreads — search > filters on the recipient, case-insensitively
+tests/threads.test.js > listSentThreads — search > filters on the subject, case-insensitively
+tests/threads.test.js > listSentThreads — search > never logs the search query
+tests/threads.test.js > listSentThreads — search > returns everything for an empty query and nothing for an unmatched one
 tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 400s on a token signed with a different secret
 tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 400s on an invalid token and writes nothing
 tests/unsubscribe.test.js > POST /api/unsubscribe/:token > 400s when the signed payload is missing the user id or email
@@ -346,7 +418,7 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest + jsdom, 94 tests) ###
+### WEB (/web, vitest, 149 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
 tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
 tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
@@ -356,6 +428,29 @@ tests/AuthPage.test.jsx > AuthPage > signs in through Supabase in login mode
 tests/AuthPage.test.jsx > AuthPage > signs up through Supabase in signup mode
 tests/AuthPage.test.jsx > AuthPage > surfaces an auth error
 tests/AuthPage.test.jsx > AuthPage > toggles between sign in and sign up
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — mode > shows the template editor and merge bar only in template mode
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — mode > starts in voice mode and switches to template and back
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > blocks submission in template mode until {{personalized}} is present
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > blocks submission without a name
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > goes back to the roll without creating anything
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > posts a template campaign with the template body
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > posts a voice campaign with no template body at all
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > renders the server message when the create fails, and stays put
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts a merge var at the cursor
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts in the middle of the template, not at the end
+tests/CampaignsPage.test.jsx > CampaignsPage > loads the campaigns on mount
+tests/CampaignsPage.test.jsx > CampaignsPage > marks each campaign with its mode
+tests/CampaignsPage.test.jsx > CampaignsPage > navigates to a campaign when its row is clicked
+tests/CampaignsPage.test.jsx > CampaignsPage > opens the builder from New campaign
+tests/CampaignsPage.test.jsx > CampaignsPage > renders a deliberate empty state when there are none
+tests/CampaignsPage.test.jsx > CampaignsPage > renders only the campaigns the API returned
+tests/CampaignsPage.test.jsx > CampaignsPage > renders the server message when the load fails
+tests/CampaignsPage.test.jsx > CampaignsPage > shows each campaign status
+tests/CampaignsPage.test.jsx > CampaignsPage > shows the sent and replied counts, zero included
+tests/CampaignsPage.test.jsx > CampaignsPage > tallies replies against letters sent across the roll
+tests/CampaignsPage.test.jsx > CampaignsPage — one campaign opened > fetches and renders the campaign when one is open
+tests/CampaignsPage.test.jsx > CampaignsPage — one campaign opened > goes back to the roll
+tests/CampaignsPage.test.jsx > CampaignsPage — one campaign opened > reads a campaign that is not theirs as absent, not as a fault
 tests/ComposePage.test.jsx > ComposePage — generating > calls /send/generate and fills the subject and body fields
 tests/ComposePage.test.jsx > ComposePage — generating > does not warn when the fidelity score clears the bar
 tests/ComposePage.test.jsx > ComposePage — generating > renders a visible warning when the fidelity score is under 80
@@ -391,6 +486,13 @@ tests/ComposePage.test.jsx > ComposePage — the goal field grows with what is t
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > Cancel sends nothing and hands control back to the caller
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > disables the send button while in flight so it cannot double-send
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — cancelling and failures > renders the server error message and re-enables the button
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > Cancel on a follow-up sends nothing
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > disables the send button while a follow-up is in flight
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > does NOT call /send on render with threading props — only on the Send click
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > lets the caller name the way out after the send, defaulting to "Write another"
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > sends no threadId or inReplyTo for an ordinary first send
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > sends the displayed To, Subject and Body byte-for-byte, plus the thread ids
+tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — following up inside a thread > still says "Write another" when no label is given
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > POSTs /gmail/connect and navigates to the consent URL it returns
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > does NOT offer it for an ordinary failure
 tests/ConfirmSendDialog.test.jsx > ConfirmSendDialog — recovering a Gmail grant > keys off the action code, not the wording of the message
@@ -429,13 +531,38 @@ tests/OnboardingPage.test.jsx > OnboardingPage — ready > does not crash on a m
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders a null profile_json without crashing
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the dossier including never_does entries
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the verbatim clipping lists, the pull-quote and emoji usage
+tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > does NOT call /send when the dialog opens — only the approve click sends
+tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > does not double-prefix the subject — the server owns the "Re: "
+tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > opens ConfirmSendDialog, not a confirmation of its own
+tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > prefills the recipient from whoever spoke last in the thread
+tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > sends the thread ids, the confirmation, and the body exactly as displayed
+tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > shows the sent confirmation and refreshes that thread
+tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > Cancel in the dialog returns to the composer and sends nothing
+tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > disables the send button while the follow-up is in flight
+tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > posts nothing while browsing, opening and abandoning the composer
+tests/ThreadFollowUp.test.jsx > Follow-up — nothing reaches /send around the dialog > will not open the dialog on an empty body, so there is nothing to approve
 tests/ThreadsPage.test.jsx > ThreadsPage > loads sent threads on mount
 tests/ThreadsPage.test.jsx > ThreadsPage > makes plain that this is reply detection on sent mail, not an inbox
 tests/ThreadsPage.test.jsx > ThreadsPage > polls every 30 seconds and clears the interval on unmount
 tests/ThreadsPage.test.jsx > ThreadsPage > renders an empty state when nothing has been sent
+tests/ThreadsPage.test.jsx > ThreadsPage > renders only the threads the API returned and invents none of its own
 tests/ThreadsPage.test.jsx > ThreadsPage > renders the server message when the load fails
 tests/ThreadsPage.test.jsx > ThreadsPage > shows a Replied mark only on threads that were replied to
 tests/ThreadsPage.test.jsx > ThreadsPage > tallies the replies against the total in the page head
+tests/ThreadsPage.test.jsx > ThreadsPage — refreshing on demand, never under the reader > does NOT refresh the list while a thread is being read
+tests/ThreadsPage.test.jsx > ThreadsPage — refreshing on demand, never under the reader > refetches on demand when Refresh is clicked
+tests/ThreadsPage.test.jsx > ThreadsPage — refreshing on demand, never under the reader > resumes background refreshes once the reader goes back to the list
+tests/ThreadsPage.test.jsx > ThreadsPage — refreshing on demand, never under the reader > says when the register was last updated
+tests/ThreadsPage.test.jsx > ThreadsPage — searching the register > debounces the search and calls /threads with the q param
+tests/ThreadsPage.test.jsx > ThreadsPage — searching the register > distinguishes an empty search result from having sent nothing
+tests/ThreadsPage.test.jsx > ThreadsPage — searching the register > goes back to the unfiltered list when the box is cleared
+tests/ThreadsPage.test.jsx > ThreadsPage — searching the register > ignores a stale search response that lands after a newer one
+tests/ThreadsPage.test.jsx > ThreadsPage — the thread detail > distinguishes what was sent from what came back
+tests/ThreadsPage.test.jsx > ThreadsPage — the thread detail > fetches and renders the conversation when a row is clicked
+tests/ThreadsPage.test.jsx > ThreadsPage — the thread detail > goes back to the register from the detail
+tests/ThreadsPage.test.jsx > ThreadsPage — the thread detail > renders a calm not-found when the thread is not one of theirs
+tests/ThreadsPage.test.jsx > ThreadsPage — the thread detail > renders a reply body as text, never as markup
+tests/ThreadsPage.test.jsx > ThreadsPage — the thread detail > renders the server message for a real detail failure
 tests/UnsubscribePage.test.jsx > UnsubscribePage > posts the token read off the path, on mount
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders a calm invalid state on a 400, with no raw error detail
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the already-removed state for { status: 'already' } and does not call it an error
