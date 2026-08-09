@@ -30,7 +30,10 @@ import { LEAD_REVIEW_COLUMNS } from './leadReview.js';
  * carry ids and the fidelity score only.
  */
 
-const CAMPAIGN_COLUMNS = 'id, user_id, name, mode, template_body, subject_template, status';
+// `brief` and `clarifications` are read for campaignGoal() below: a redraft has
+// to be written to the same goal the batch used, not to the campaign name.
+const CAMPAIGN_COLUMNS =
+  'id, user_id, name, mode, template_body, subject_template, brief, clarifications, status';
 const LEAD_DRAFT_COLUMNS =
   'id, campaign_id, user_id, email, first_name, last_name, company, title, research_json, status';
 

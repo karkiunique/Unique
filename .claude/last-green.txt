@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-08 | Node v20.20.2 | branch feat/phase-3
-# Totals: server=584, web=226, combined=810
+# Updated: 2026-08-09 | Node v20.20.2 | branch feat/phase-3
+# Totals: server=634, web=241, combined=875
 
-### SERVER (/server, vitest, 584 tests) ###
+### SERVER (/server, vitest, 634 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -29,15 +29,38 @@ tests/auth.test.js > requireAuth > 401s when Supabase returns no user
 tests/auth.test.js > requireAuth > 401s when no Authorization header is present
 tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
 tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/campaignGoal.test.js > campaignGoal > carries the user's own subject line through
+tests/campaignGoal.test.js > campaignGoal > falls back again when a campaign has neither, rather than returning nothing
+tests/campaignGoal.test.js > campaignGoal > falls back to the campaign name when there is no brief
+tests/campaignGoal.test.js > campaignGoal > is the brief when there is one, and the name does not appear at all
+tests/campaignGoal.test.js > campaignGoal > prefers an explicit per-run goal over both the brief and the name
+tests/campaignGoal.test.js > campaignGoal — the clarify pass > adds every answered question to the goal
+tests/campaignGoal.test.js > campaignGoal — the clarify pass > adds nothing at all when every question was skipped
+tests/campaignGoal.test.js > campaignGoal — the clarify pass > leaves out the skipped ones entirely — no null, no empty answer
+tests/campaignGoal.test.js > campaignGoal — the clarify pass > survives clarifications of the wrong shape without throwing
 tests/campaignRoutes.test.js > GET /api/campaigns > lists the caller's campaigns with counts
 tests/campaignRoutes.test.js > GET /api/campaigns/:id > 400s on an id that is not a campaign id, without touching the service
 tests/campaignRoutes.test.js > GET /api/campaigns/:id > 404s when the campaign is not the caller's
 tests/campaignRoutes.test.js > GET /api/campaigns/:id > returns the detail with its leads
 tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > 400s on a malformed campaign id
 tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > forwards only the editable fields
+tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > forwards the brief and the clarification answers
+tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > logs no brief or answer text when the patch fails
+tests/campaignRoutes.test.js > PATCH /api/campaigns/:id > still drops status, user_id, mode and id alongside the new fields
 tests/campaignRoutes.test.js > POST /api/campaigns > creates the campaign for the authenticated user
+tests/campaignRoutes.test.js > POST /api/campaigns > forwards the brief when the body carries one
 tests/campaignRoutes.test.js > POST /api/campaigns > ignores a user_id in the body — the owner is the token, always
+tests/campaignRoutes.test.js > POST /api/campaigns > logs no brief text, on success or on failure
 tests/campaignRoutes.test.js > POST /api/campaigns > returns the service status and message for invalid input
+tests/campaignRoutes.test.js > POST /api/campaigns > sends no brief key at all when the body has none
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > 400s on an id that is not a campaign id, without touching the service
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > 401s on the trailing-slash variant too
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > 401s without a token, without reaching the service
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > 404s when the campaign is not the caller's
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > gives a generic message when the model fails, never the model text
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > ignores a user_id or a brief in the body
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > logs ids and a count only
+tests/campaignRoutes.test.js > POST /api/campaigns/:id/clarify > returns the questions for the authenticated user
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 400s on an id that is not a campaign id
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 401s on the trailing-slash variant too, without reaching the service
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/generate > 401s without a token, without reaching the service
@@ -58,14 +81,17 @@ tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > forwards the rows
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > logs ids and a count only — never a row
 tests/campaignRoutes.test.js > POST /api/campaigns/:id/leads > logs no row content when the upload fails either
 tests/campaignRoutes.test.js > campaign routes — authentication > 401s on every campaign route without a token
-tests/campaigns.test.js > campaign logging > logs ids and counts only — never a name, subject or template body
+tests/campaigns.test.js > campaign logging > logs ids and counts only — never a name, subject, template, brief or answer
 tests/campaigns.test.js > createCampaign > creates a voice campaign with a null template body
+tests/campaigns.test.js > createCampaign > is optional: no brief stores null, never an empty string
 tests/campaigns.test.js > createCampaign > rejects a template with no {{personalized}} section
 tests/campaigns.test.js > createCampaign > rejects an empty or whitespace-only name
+tests/campaigns.test.js > createCampaign > rejects an over-long brief cleanly, without writing a row
 tests/campaigns.test.js > createCampaign > rejects an over-long name
 tests/campaigns.test.js > createCampaign > rejects any mode that is not exactly 'voice' or 'template'
 tests/campaigns.test.js > createCampaign > rejects template mode with no template body at all
 tests/campaigns.test.js > createCampaign > requires a userId
+tests/campaigns.test.js > createCampaign > stores the brief, trimmed of its outer whitespace
 tests/campaigns.test.js > createCampaign > stores the template verbatim when it carries a {{personalized}} section
 tests/campaigns.test.js > getCampaign > 404s on an unknown campaign id
 tests/campaigns.test.js > getCampaign > 404s on another user's campaign, and filters both reads on user_id
@@ -80,7 +106,27 @@ tests/campaigns.test.js > updateCampaign > carries user_id on the write itself, 
 tests/campaigns.test.js > updateCampaign > clears the subject template when it is emptied
 tests/campaigns.test.js > updateCampaign > rejects a template body on a voice campaign
 tests/campaigns.test.js > updateCampaign > rejects a template body that loses its {{personalized}} section
+tests/campaigns.test.js > updateCampaign > rejects clarifications that are not a well-formed list
+tests/campaigns.test.js > updateCampaign > still cannot change status, user_id, mode or id alongside the new fields
+tests/campaigns.test.js > updateCampaign > stores clarifications, with a null answer for a skipped question
+tests/campaigns.test.js > updateCampaign > updates the brief
 tests/campaigns.test.js > updateCampaign > updates the name and subject template
+tests/clarify.test.js > clarify privacy > logs ids and a count only — never the brief or a question
+tests/clarify.test.js > clarify privacy > logs nothing at all when the model response cannot be parsed
+tests/clarify.test.js > clarifyCampaign > 400s without a brief, before a single model call is spent
+tests/clarify.test.js > clarifyCampaign > accepts an empty question list as an answer, not a failure
+tests/clarify.test.js > clarifyCampaign > returns at most 8 questions when the model returns twenty
+tests/clarify.test.js > clarifyCampaign > sends the brief to the model and returns its questions
+tests/clarify.test.js > clarifyCampaign > tells the model not to ask about style, and to skip what the brief covers
+tests/clarify.test.js > clarifyCampaign — a model that misbehaves > is a clean 502 on an empty response rather than a crash
+tests/clarify.test.js > clarifyCampaign — a model that misbehaves > is a clean 502 on prose instead of JSON, and echoes none of it
+tests/clarify.test.js > clarifyCampaign — a model that misbehaves > is a clean 502 when questions is not an array
+tests/clarify.test.js > clarifyCampaign — owner scoping > 404s on an unknown campaign, and 400s without a userId or an id
+tests/clarify.test.js > clarifyCampaign — owner scoping > 404s on another user's campaign and never calls the model
+tests/clarify.test.js > clarifyCampaign — owner scoping > filters the campaign read by user_id, not by id alone
+tests/clarify.test.js > parseClarifyQuestions > drops blanks and duplicates, and trims what it keeps
+tests/clarify.test.js > parseClarifyQuestions > reads a question out of an object entry as well as a bare string
+tests/clarify.test.js > parseClarifyQuestions > strips ```json fences the model wraps around the object
 tests/corpusSummary.test.js > GET /api/voice/corpus-summary — auth > 401s when the token does not resolve to a user
 tests/corpusSummary.test.js > GET /api/voice/corpus-summary — auth > 401s without an Authorization header, and never touches Gmail
 tests/corpusSummary.test.js > GET /api/voice/corpus-summary — counts only > counts the corpus the voice builder would receive, skipping empty bodies
@@ -184,11 +230,15 @@ tests/generateBatch.test.js > template mode > re-personalises once when a sectio
 tests/generateBatch.test.js > template mode > refuses to start when a template campaign has no subject line
 tests/generateBatch.test.js > template mode > refuses to start when the template lost its {{personalized}} section
 tests/generateBatch.test.js > template mode > substitutes merge vars in code — the model never sees a raw {{var}}
+tests/generateBatch.test.js > voice mode > adds the answered clarifications to the goal and leaves the skipped ones out
 tests/generateBatch.test.js > voice mode > appends no unsubscribe footer to a generated body
 tests/generateBatch.test.js > voice mode > drafts every pending lead and stores subject, body and score
+tests/generateBatch.test.js > voice mode > falls back to the campaign name when the brief is empty, not to nothing
 tests/generateBatch.test.js > voice mode > moves the campaign draft -> generating -> review
 tests/generateBatch.test.js > voice mode > prefers the user's own subject line over the model's when they wrote one
 tests/generateBatch.test.js > voice mode > puts the decrypted exemplars in every generation prompt
+tests/generateBatch.test.js > voice mode > sends the brief as the goal, and not the campaign name
+tests/generateBatch.test.js > voice mode > still prefers an explicit per-run goal over the brief
 tests/generateBatch.test.js > voice mode > uses the campaign name as the goal, and an explicit goal when given one
 tests/gmail.test.js > buildAuthUrl > asks for offline access with a forced consent prompt
 tests/gmail.test.js > buildAuthUrl > carries the user id in an opaque state param
@@ -588,7 +638,7 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest, 226 tests) ###
+### WEB (/web, vitest, 241 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
 tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
 tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
@@ -606,6 +656,17 @@ tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > goes b
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > posts a template campaign with the template body
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > posts a voice campaign with no template body at all
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > renders the server message when the create fails, and stays put
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the brief > asks for no clarifying questions when there is no brief
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the brief > sends no brief key when the field is left empty
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the brief > submits the brief with the campaign
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > advances to the next question when one is answered
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > asks the questions one at a time, never as a wall of boxes
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > cannot go forward on an empty answer — that is what Skip is for
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > goes straight to the campaign when the brief needs no questions
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > goes straight to the campaign when the clarify pass fails
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > keeps the answers on screen when saving them fails
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > saves the answers it has and goes on to the campaign
+tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the clarify pass > skips a question without recording an answer for it
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts a merge var at the cursor
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts in the middle of the template, not at the end
 tests/CampaignGenerate.test.jsx > CampaignGenerate > never offers to draft while the campaign is sending
@@ -784,6 +845,10 @@ tests/UnsubscribePage.test.jsx > UnsubscribePage > renders a calm invalid state 
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the already-removed state for { status: 'already' } and does not call it an error
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the invalid state when the path carries no token, without calling the API
 tests/UnsubscribePage.test.jsx > UnsubscribePage > renders the removed state for { status: 'unsubscribed' }
+tests/clarifyFetch.test.js > fetchClarifyQuestions > asks the campaign for its questions and returns them
+tests/clarifyFetch.test.js > fetchClarifyQuestions > drops blanks and anything that is not a string
+tests/clarifyFetch.test.js > fetchClarifyQuestions > returns nothing on a response of an unexpected shape
+tests/clarifyFetch.test.js > fetchClarifyQuestions > returns nothing rather than throwing when the request fails
 tests/csv.test.js > decodeCsvFile — encoding > accepts an ArrayBuffer as well as a byte view, and an empty file as empty text
 tests/csv.test.js > decodeCsvFile — encoding > decodes a windows-1252 file to the right characters rather than mojibake
 tests/csv.test.js > decodeCsvFile — encoding > does not mistake valid multi-byte UTF-8 for latin-1

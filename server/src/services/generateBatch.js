@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { loadProfileWithExemplars } from './voice.js';
 import { PERSONALIZED_MARKER } from './campaigns.js';
+import { campaignGoal } from './campaignGoal.js';
 import { draftInVoice } from './generateCore.js';
 import { draftFromTemplate } from './generateTemplate.js';
 import { applyMergeVars, findMissingMergeVars } from './templateMerge.js';
@@ -30,6 +31,13 @@ import { applyMergeVars, findMissingMergeVars } from './templateMerge.js';
  * reads every lead first (CLAUDE.md §3).
  */
 
+/**
+ * Re-exported for leadRegenerate.js: redrafting one lead from the review screen
+ * has to be written to the same goal this batch used, so it shares the
+ * machinery rather than growing a second copy that can drift.
+ */
+export { campaignGoal };
+
 /** CLAUDE.md §3: iterate leads with p-limit concurrency 3. */
 export const GENERATION_CONCURRENCY = 3;
 
@@ -50,7 +58,8 @@ const GENERATING_CAMPAIGN = 'generating';
 const REVIEW_CAMPAIGN = 'review';
 const SENDING_CAMPAIGN = 'sending';
 
-const CAMPAIGN_COLUMNS = 'id, user_id, name, mode, template_body, subject_template, status';
+const CAMPAIGN_COLUMNS =
+  'id, user_id, name, mode, template_body, subject_template, brief, clarifications, status';
 const LEAD_COLUMNS = 'id, email, first_name, last_name, company, title, research_json';
 
 function trimmed(value) {
@@ -162,28 +171,6 @@ async function markLeadFailed(userId, leadId) {
     .eq('user_id', userId);
 
   if (error) throw httpError(500, 'Could not flag the recipient');
-}
-
-/**
- * The user's stated goal for this run. There is no `goal` column on `campaigns`
- * — the schema in CLAUDE.md is the contract and is not changed here — so a
- * caller may pass one per run, and otherwise it is the user's own words about
- * this campaign: its name, plus the subject line they chose.
- *
- * Exported for leadRegenerate.js: redrafting one lead from the review screen has
- * to produce the same letter this batch would, so it shares the machinery rather
- * than growing a second copy that can drift.
- */
-export function campaignGoal(campaign, requested) {
-  const asked = trimmed(requested);
-  if (asked !== '') return asked;
-
-  const parts = [trimmed(campaign.name) || 'a short cold outreach email'];
-  if (trimmed(campaign.subject_template) !== '') {
-    parts.push(`The subject line is: ${campaign.subject_template}`);
-  }
-
-  return parts.join('. ');
 }
 
 function recipientOf(lead) {

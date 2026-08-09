@@ -1,6 +1,14 @@
 import { getSupabaseAdmin } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
+import {
+  validateName,
+  validateMode,
+  validateSubjectTemplate,
+  validateTemplateBody,
+  validateBrief,
+  validateClarifications
+} from './campaignFields.js';
 
 /**
  * Campaigns — create, list, read, edit.
@@ -11,23 +19,22 @@ import { httpError } from '../lib/httpError.js';
  * standing between one user's campaigns and another's. A read or a write that
  * forgets it is a data leak, not a listing bug. Treat it as load-bearing.
  *
- * Names, subjects and template bodies never reach a log line: a template body is
- * user-authored email content and is covered by CLAUDE.md § Privacy exactly like
- * a generated body. Log lines here carry ids and counts only.
+ * Names, subjects, template bodies, briefs and clarification answers never reach
+ * a log line: all of them are user-authored content and are covered by
+ * CLAUDE.md § Privacy exactly like a generated body. Log lines here carry ids
+ * and counts only.
+ *
+ * Field validation lives in campaignFields.js — what a value may be is a
+ * separate question from who may read or write the row.
  */
 
-export const CAMPAIGN_MODES = ['voice', 'template'];
-export const PERSONALIZED_MARKER = '{{personalized}}';
-
-const MAX_NAME_LENGTH = 120;
-const MAX_SUBJECT_LENGTH = 200;
-const MAX_TEMPLATE_LENGTH = 20000;
+export { CAMPAIGN_MODES, PERSONALIZED_MARKER } from './campaignFields.js';
 
 const SENT_STATUS = 'sent';
 const REPLIED_STATUS = 'replied';
 
 const CAMPAIGN_COLUMNS =
-  'id, user_id, name, mode, template_body, subject_template, status, created_at';
+  'id, user_id, name, mode, template_body, subject_template, brief, clarifications, status, created_at';
 
 // Identity and progress only. Generated and edited bodies belong to the review
 // screen, which is where a letter has a reason to leave the database.
@@ -52,65 +59,6 @@ function requireCampaignId(campaignId) {
   }
 
   return campaignId.trim();
-}
-
-function trimmed(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function validateName(value) {
-  const name = trimmed(value);
-
-  if (name === '') throw httpError(400, 'A campaign name is required');
-  if (name.length > MAX_NAME_LENGTH) {
-    throw httpError(400, `A campaign name must be ${MAX_NAME_LENGTH} characters or fewer`);
-  }
-
-  return name;
-}
-
-/** The DB has a CHECK constraint; validating here turns a 500 into a clean 400. */
-function validateMode(value) {
-  const mode = trimmed(value);
-
-  if (!CAMPAIGN_MODES.includes(mode)) {
-    throw httpError(400, "Mode must be either 'voice' or 'template'");
-  }
-
-  return mode;
-}
-
-function validateSubjectTemplate(value) {
-  const subject = trimmed(value);
-
-  if (subject === '') return null;
-  if (subject.length > MAX_SUBJECT_LENGTH) {
-    throw httpError(400, `A subject template must be ${MAX_SUBJECT_LENGTH} characters or fewer`);
-  }
-
-  return subject;
-}
-
-/**
- * A template with no {{personalized}} section is a mail merge: every recipient
- * gets the same letter bar their first name, which is the thing this product
- * exists not to send. Enforced here as well as in the builder, because the UI is
- * not the authority.
- *
- * The body is stored as written — whitespace is layout in an email template.
- */
-function validateTemplateBody(value) {
-  const body = typeof value === 'string' ? value : '';
-
-  if (body.trim() === '') throw httpError(400, 'A template body is required in template mode');
-  if (body.length > MAX_TEMPLATE_LENGTH) {
-    throw httpError(400, `A template body must be ${MAX_TEMPLATE_LENGTH} characters or fewer`);
-  }
-  if (!body.includes(PERSONALIZED_MARKER)) {
-    throw httpError(400, `A template must contain at least one ${PERSONALIZED_MARKER} section`);
-  }
-
-  return body;
 }
 
 function countByStatus(leads, status) {
@@ -154,6 +102,8 @@ export async function createCampaign(userId, input = {}) {
   // so nothing downstream mistakes "" for a template the user wrote.
   const templateBody = mode === 'template' ? validateTemplateBody(payload.templateBody) : null;
   const subjectTemplate = validateSubjectTemplate(payload.subjectTemplate);
+  // Optional at creation: the builder can create a campaign and clarify later.
+  const brief = validateBrief(payload.brief);
 
   const { data, error } = await campaignsTable()
     .insert({
@@ -162,6 +112,7 @@ export async function createCampaign(userId, input = {}) {
       mode,
       template_body: templateBody,
       subject_template: subjectTemplate,
+      brief,
       status: 'draft'
     })
     .select(CAMPAIGN_COLUMNS)
@@ -230,13 +181,17 @@ export async function getCampaign(userId, campaignId) {
 }
 
 /**
- * Name, template body and subject template only.
+ * Name, template body, subject template, brief and clarification answers only.
  *
  * `status` is deliberately absent: it is moved by generation and sending, and a
  * client that could set it could mark a campaign 'sending' with nothing queued.
  * `user_id` is absent for the blunter reason — an editable owner column is a way
  * to hand your rows to somebody else. `mode` is absent because switching mode
  * would strand a template body or leave a voice campaign without one.
+ *
+ * KEY BY KEY, never a spread of the patch: that is what keeps those four
+ * unsettable no matter what a request body carries. New editable fields are
+ * added the same way, one named key at a time.
  */
 function buildUpdates(campaign, patch) {
   const updates = {};
@@ -251,6 +206,10 @@ function buildUpdates(campaign, patch) {
       throw httpError(400, 'A voice-mode campaign has no template body');
     }
     updates.template_body = validateTemplateBody(patch.templateBody);
+  }
+  if ('brief' in patch) updates.brief = validateBrief(patch.brief);
+  if ('clarifications' in patch) {
+    updates.clarifications = validateClarifications(patch.clarifications);
   }
 
   return updates;

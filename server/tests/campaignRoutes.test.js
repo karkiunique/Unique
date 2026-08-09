@@ -32,12 +32,13 @@ const { OAuth2, gmailFactory } = vi.hoisted(() => {
   };
 });
 
-const { getUser, create, list, get, update, add, begin, run } = vi.hoisted(() => ({
+const { getUser, create, list, get, update, clarify, add, begin, run } = vi.hoisted(() => ({
   getUser: vi.fn(),
   create: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   update: vi.fn(),
+  clarify: vi.fn(),
   add: vi.fn(),
   begin: vi.fn(),
   run: vi.fn()
@@ -63,6 +64,8 @@ vi.mock('../src/services/campaigns.js', () => ({
   getCampaign: get,
   updateCampaign: update
 }));
+
+vi.mock('../src/services/clarify.js', () => ({ clarifyCampaign: clarify }));
 
 // Only addLeads is stubbed; MAX_LEADS_PER_REQUEST stays real, so the row-cap
 // assertions below track the service rather than a number copied into a mock.
@@ -92,6 +95,10 @@ const TOKEN = 'Bearer good.jwt';
 const CAMPAIGN_ID = '11111111-2222-4333-8444-555555555555';
 const TEMPLATE = 'Hi {{first_name}},\n\n{{personalized}}\n\nworth 15 minutes?';
 
+const BRIEF =
+  'We run payroll for Nordic shipping firms. Blackwood Holdings just bought two fleets.';
+const QUESTIONS = ['Who should reply?', 'What is the ask?'];
+
 const CAMPAIGN = {
   id: CAMPAIGN_ID,
   user_id: USER_ID,
@@ -99,6 +106,8 @@ const CAMPAIGN = {
   mode: 'template',
   template_body: TEMPLATE,
   subject_template: null,
+  brief: null,
+  clarifications: null,
   status: 'draft',
   created_at: '2026-08-06T00:00:00.000Z'
 };
@@ -139,6 +148,7 @@ beforeEach(() => {
   list.mockReset();
   get.mockReset();
   update.mockReset();
+  clarify.mockReset();
   add.mockReset();
   begin.mockReset();
   run.mockReset();
@@ -147,6 +157,7 @@ beforeEach(() => {
   list.mockResolvedValue([{ ...CAMPAIGN, sentCount: 2, repliedCount: 1 }]);
   get.mockResolvedValue({ ...CAMPAIGN, sentCount: 0, repliedCount: 0, leads: [] });
   update.mockResolvedValue({ ...CAMPAIGN, name: 'Renamed run' });
+  clarify.mockResolvedValue({ campaignId: CAMPAIGN_ID, questions: QUESTIONS });
   add.mockResolvedValue({ inserted: 1, skipped: [], rejected: [], flagged: [] });
   begin.mockResolvedValue(PREPARED);
   run.mockResolvedValue({ campaignId: CAMPAIGN_ID, generated: 3, failed: 0, failures: [] });
@@ -218,6 +229,42 @@ describe('POST /api/campaigns', () => {
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: "Mode must be either 'voice' or 'template'" });
+  });
+
+  /** The brief is the generation goal — a route that drops it is the whole bug. */
+  it('forwards the brief when the body carries one', async () => {
+    await authed('post', '/api/campaigns').send({
+      name: 'Series A outreach',
+      mode: 'voice',
+      brief: BRIEF
+    });
+
+    const [, input] = create.mock.calls[0];
+    expect(input.brief).toBe(BRIEF);
+  });
+
+  it('sends no brief key at all when the body has none', async () => {
+    await authed('post', '/api/campaigns').send({ name: 'Series A outreach', mode: 'voice' });
+
+    const [, input] = create.mock.calls[0];
+    expect(input).not.toHaveProperty('brief');
+  });
+
+  it('logs no brief text, on success or on failure', async () => {
+    await authed('post', '/api/campaigns').send({ name: 'x', mode: 'voice', brief: BRIEF });
+
+    create.mockRejectedValue(httpError(400, 'A brief must be 8000 characters or fewer'));
+    await authed('post', '/api/campaigns').send({ name: 'x', mode: 'voice', brief: BRIEF });
+
+    const serialized = JSON.stringify([
+      ...logger.info.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls
+    ]);
+
+    // The brief is user-authored content about their own business (migration 004).
+    expect(serialized).not.toContain('Nordic shipping');
+    expect(serialized).not.toContain('Blackwood');
   });
 });
 
@@ -479,6 +526,87 @@ describe('POST /api/campaigns/:id/generate', () => {
   });
 });
 
+describe('POST /api/campaigns/:id/clarify', () => {
+  it('returns the questions for the authenticated user', async () => {
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/clarify`).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ campaignId: CAMPAIGN_ID, questions: QUESTIONS });
+    expect(clarify).toHaveBeenCalledWith(USER_ID, CAMPAIGN_ID);
+  });
+
+  /**
+   * The owner is the token. A brief in the body is not read at all — the stored
+   * campaign is the record, and it is resolved by (id, user_id) in the service.
+   */
+  it('ignores a user_id or a brief in the body', async () => {
+    await authed('post', `/api/campaigns/${CAMPAIGN_ID}/clarify`).send({
+      user_id: 'user-someone-else',
+      brief: 'a brief belonging to nobody'
+    });
+
+    expect(clarify).toHaveBeenCalledTimes(1);
+    expect(clarify).toHaveBeenCalledWith(USER_ID, CAMPAIGN_ID);
+  });
+
+  it('401s without a token, without reaching the service', async () => {
+    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/clarify`).send({});
+
+    expect(res.status).toBe(401);
+    expect(clarify).not.toHaveBeenCalled();
+  });
+
+  /** Same trailing-slash variant this repo has been bitten by before. */
+  it('401s on the trailing-slash variant too', async () => {
+    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/clarify/`).send({});
+
+    expect(res.status).toBe(401);
+    expect(clarify).not.toHaveBeenCalled();
+  });
+
+  it("404s when the campaign is not the caller's", async () => {
+    clarify.mockRejectedValue(httpError(404, 'Campaign not found'));
+
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/clarify`).send({});
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Campaign not found' });
+  });
+
+  it('400s on an id that is not a campaign id, without touching the service', async () => {
+    const res = await authed('post', '/api/campaigns/not-a-uuid/clarify').send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid campaign id' });
+    expect(clarify).not.toHaveBeenCalled();
+  });
+
+  it('gives a generic message when the model fails, never the model text', async () => {
+    const upstream = new Error(`Anthropic rejected the prompt containing ${BRIEF}`);
+    upstream.status = 502;
+    clarify.mockRejectedValue(upstream);
+
+    const res = await authed('post', `/api/campaigns/${CAMPAIGN_ID}/clarify`).send({});
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'Could not draft the questions' });
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('Nordic shipping');
+  });
+
+  it('logs ids and a count only', async () => {
+    await authed('post', `/api/campaigns/${CAMPAIGN_ID}/clarify`).send({ brief: BRIEF });
+
+    const serialized = JSON.stringify([
+      ...logger.info.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls
+    ]);
+
+    expect(serialized).not.toContain('Nordic shipping');
+    expect(serialized).not.toContain('Who should reply?');
+  });
+});
+
 describe('PATCH /api/campaigns/:id', () => {
   it('forwards only the editable fields', async () => {
     const res = await authed('patch', `/api/campaigns/${CAMPAIGN_ID}`).send({
@@ -494,6 +622,58 @@ describe('PATCH /api/campaigns/:id', () => {
       name: 'Renamed run',
       subjectTemplate: 'new subject'
     });
+  });
+
+  it('forwards the brief and the clarification answers', async () => {
+    const clarifications = [
+      { question: 'Who should reply?', answer: 'the head of finance' },
+      { question: 'What is the ask?', answer: null }
+    ];
+
+    const res = await authed('patch', `/api/campaigns/${CAMPAIGN_ID}`).send({
+      brief: BRIEF,
+      clarifications
+    });
+
+    expect(res.status).toBe(200);
+    expect(update).toHaveBeenCalledWith(USER_ID, CAMPAIGN_ID, { brief: BRIEF, clarifications });
+  });
+
+  /**
+   * The key-by-key guarantee, re-pinned now the patch accepts two more fields.
+   * A route that started spreading the body to save four lines would pass every
+   * other assertion in this file and quietly make `status` settable.
+   */
+  it('still drops status, user_id, mode and id alongside the new fields', async () => {
+    await authed('patch', `/api/campaigns/${CAMPAIGN_ID}`).send({
+      brief: BRIEF,
+      clarifications: [{ question: 'Who should reply?', answer: 'the head of finance' }],
+      status: 'sending',
+      user_id: 'user-someone-else',
+      mode: 'voice',
+      id: 'camp-hijacked'
+    });
+
+    const [, , patch] = update.mock.calls[0];
+    expect(Object.keys(patch).sort()).toEqual(['brief', 'clarifications']);
+    expect(patch).not.toHaveProperty('status');
+    expect(patch).not.toHaveProperty('user_id');
+    expect(patch).not.toHaveProperty('mode');
+    expect(patch).not.toHaveProperty('id');
+  });
+
+  it('logs no brief or answer text when the patch fails', async () => {
+    update.mockRejectedValue(httpError(400, 'Nothing to update'));
+
+    await authed('patch', `/api/campaigns/${CAMPAIGN_ID}`).send({
+      brief: BRIEF,
+      clarifications: [{ question: 'Who should reply?', answer: 'the head of finance' }]
+    });
+
+    const serialized = JSON.stringify(logger.error.mock.calls);
+
+    expect(serialized).not.toContain('Nordic shipping');
+    expect(serialized).not.toContain('the head of finance');
   });
 
   it('400s on a malformed campaign id', async () => {

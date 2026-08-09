@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 
+import ClarifyQuestions from '../components/ClarifyQuestions.jsx';
 import Icon from '../components/Icon.jsx';
 import { PageHead } from '../components/Shell.jsx';
 import { api } from '../lib/api.js';
+import { fetchClarifyQuestions } from '../lib/clarify.js';
 import { navigateTo } from '../lib/navigate.js';
 import { useAutoGrow } from '../lib/useAutoGrow.js';
 
@@ -17,6 +19,10 @@ import { useAutoGrow } from '../lib/useAutoGrow.js';
  * to everyone bar their first name — so submit is blocked without one. The
  * server enforces the same rule and stays the authority; this is only the early,
  * kinder version of that 400.
+ *
+ * THE BRIEF IS THE POINT OF THIS SCREEN, not the name. It is what every letter
+ * is written from; the name only labels the run. Once the campaign exists, the
+ * clarify pass asks for what the brief left out, one question at a time.
  */
 
 const PERSONALIZED = '{{personalized}}';
@@ -39,6 +45,7 @@ const MODES = [
 
 export default function CampaignBuilderPage() {
   const [name, setName] = useState('');
+  const [brief, setBrief] = useState('');
   const [mode, setMode] = useState('voice');
   const [subject, setSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
@@ -47,7 +54,11 @@ export default function CampaignBuilderPage() {
   const [caret, setCaret] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // The created campaign and the questions its brief left unanswered, once
+  // there are any. Set means this screen has handed over to the clarify pass.
+  const [clarify, setClarify] = useState(null);
 
+  const briefRef = useAutoGrow(brief);
   const templateRef = useAutoGrow(templateBody);
 
   useEffect(() => {
@@ -75,19 +86,45 @@ export default function CampaignBuilderPage() {
     setError(null);
     setBusy(true);
 
+    const written = brief.trim();
     const payload = { name: name.trim(), mode, subject_template: subject.trim() };
     // Voice mode sends no template at all, rather than an empty one.
     if (mode === 'template') payload.template_body = templateBody;
+    if (written !== '') payload.brief = written;
 
+    let campaignId = null;
     try {
       const created = await api.post('/campaigns', payload);
-      const campaignId = created?.campaign?.id;
-
-      navigateTo(campaignId ? `/campaigns/${campaignId}` : '/campaigns');
+      campaignId = created?.campaign?.id ?? null;
     } catch (err) {
       setError(err.message);
       setBusy(false);
+      return;
     }
+
+    // Nothing to interrogate without a brief, and nothing to ask about a
+    // campaign whose id never came back. fetchClarifyQuestions never throws:
+    // drafting is never blocked on a question, a failed pass included.
+    const questions =
+      campaignId && written !== '' ? await fetchClarifyQuestions(campaignId) : [];
+
+    if (questions.length > 0) {
+      setClarify({ campaignId, questions });
+      setBusy(false);
+      return;
+    }
+
+    navigateTo(campaignId ? `/campaigns/${campaignId}` : '/campaigns');
+  }
+
+  if (clarify) {
+    return (
+      <ClarifyQuestions
+        campaignId={clarify.campaignId}
+        questions={clarify.questions}
+        onDone={() => navigateTo(`/campaigns/${clarify.campaignId}`)}
+      />
+    );
   }
 
   const isTemplate = mode === 'template';
@@ -127,6 +164,26 @@ export default function CampaignBuilderPage() {
               onChange={(event) => setName(event.target.value)}
               placeholder="Series A founders, August"
             />
+          </div>
+
+          <div className="rfield">
+            <label htmlFor="campaign-brief">
+              What is this email about? Tell me as much as you can.
+            </label>
+            {/* Grows with what is typed: this is the field every letter is
+                written from, so the box must not make saying more feel like work. */}
+            <textarea
+              id="campaign-brief"
+              ref={briefRef}
+              className="rtext brief-input"
+              rows={4}
+              value={brief}
+              onChange={(event) => setBrief(event.target.value)}
+              placeholder="Who you are, what you are offering these people, why it is worth their time, and what a reply should lead to."
+            />
+            <p className="muted brief-note">
+              The campaign name is only a label. This is what the letters are written from.
+            </p>
           </div>
 
           <div className="rfield">

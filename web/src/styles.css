@@ -2225,3 +2225,66 @@ a {
   margin-top: 20px;
   flex-wrap: wrap;
 }
+
+/* ---- the brief, and the questions it left unanswered ----
+   The brief is the field the letters are written from, so it is given room to
+   be written in rather than a one-line slot. */
+.brief-input {
+  min-height: 132px;
+}
+
+.brief-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  max-width: 54ch;
+}
+
+/* One question at a time: a wall of eight boxes reads as work and gets
+   abandoned (CLAUDE.md, 2026-08-09). */
+.clarify {
+  max-width: 60ch;
+  margin-top: 8px;
+}
+
+.clarify-head {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.clarify-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.clarify-q {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.28;
+  margin: 0 0 20px;
+}
+
+.clarify-input {
+  min-height: 96px;
+}
+
+.clarify-actions {
+  gap: 12px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+/* A skip is a real choice, not a way out of the screen: it sits level with the
+   answer, at the weight of the thing it is. */
+.clarify-note {
+  margin: 18px 0 0;
+  font-size: 14px;
+}
+
+.clarify-failed {
+  margin-top: 22px;
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+}

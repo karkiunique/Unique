@@ -33,6 +33,9 @@ const NAME = 'Series A outreach';
 const SUBJECT = 'a question about {{company}}';
 const TEMPLATE = 'Hi {{first_name}},\n\n{{personalized}}\n\nworth 15 minutes?';
 const NO_MARKER = 'Hi {{first_name}},\n\nwe do cold email. worth 15 minutes?';
+const BRIEF =
+  'We run payroll for Nordic shipping firms and just closed our first two fleets. ' +
+  'These founders raised a Series A last quarter and are hiring across three countries.';
 
 let campaignRows = [];
 let leadRows = [];
@@ -131,6 +134,8 @@ function seedCampaign(overrides = {}) {
     mode: 'voice',
     template_body: null,
     subject_template: null,
+    brief: null,
+    clarifications: null,
     status: 'draft',
     created_at: '2026-08-01T00:00:00.000Z',
     ...overrides
@@ -265,6 +270,39 @@ describe('createCampaign', () => {
 
   it('requires a userId', async () => {
     expect(await rejectionStatus(createCampaign('', { name: NAME, mode: 'voice' }))).toBe(400);
+  });
+
+  /**
+   * The brief is the generation goal (migration 004). A campaign created without
+   * one is what produced six letters about running a first test, so this is the
+   * column the whole loop exists for: it has to be stored, and stored as written.
+   */
+  it('stores the brief, trimmed of its outer whitespace', async () => {
+    const campaign = await createCampaign(OWNER, {
+      name: NAME,
+      mode: 'voice',
+      brief: `\n  ${BRIEF}  \n`
+    });
+
+    expect(campaign.brief).toBe(BRIEF);
+    expect(campaignRows[0].brief).toBe(BRIEF);
+  });
+
+  it('is optional: no brief stores null, never an empty string', async () => {
+    await createCampaign(OWNER, { name: NAME, mode: 'voice' });
+    await createCampaign(OWNER, { name: NAME, mode: 'voice', brief: '   ' });
+
+    expect(campaignRows[0].brief).toBeNull();
+    expect(campaignRows[1].brief).toBeNull();
+  });
+
+  it('rejects an over-long brief cleanly, without writing a row', async () => {
+    const status = await rejectionStatus(
+      createCampaign(OWNER, { name: NAME, mode: 'voice', brief: 'x'.repeat(9000) })
+    );
+
+    expect(status).toBe(400);
+    expect(campaignRows).toHaveLength(0);
   });
 });
 
@@ -439,28 +477,114 @@ describe('updateCampaign', () => {
 
     expect(updated.subject_template).toBeNull();
   });
+
+  it('updates the brief', async () => {
+    seedCampaign({ id: 'camp-1' });
+
+    const updated = await updateCampaign(OWNER, 'camp-1', { brief: `  ${BRIEF}  ` });
+
+    expect(updated.brief).toBe(BRIEF);
+  });
+
+  /**
+   * A skipped question keeps its question and stores a null answer (CLAUDE.md,
+   * 2026-08-09). Storing an empty string instead would leave generation unable
+   * to tell "answered with nothing" from "never answered".
+   */
+  it('stores clarifications, with a null answer for a skipped question', async () => {
+    seedCampaign({ id: 'camp-1' });
+
+    const updated = await updateCampaign(OWNER, 'camp-1', {
+      clarifications: [
+        { question: ' Who should reply? ', answer: '  the head of finance  ' },
+        { question: 'What proof do you have?', answer: '   ' },
+        { question: 'What is the ask?', answer: null }
+      ]
+    });
+
+    expect(updated.clarifications).toEqual([
+      { question: 'Who should reply?', answer: 'the head of finance' },
+      { question: 'What proof do you have?', answer: null },
+      { question: 'What is the ask?', answer: null }
+    ]);
+  });
+
+  it('rejects clarifications that are not a well-formed list', async () => {
+    seedCampaign({ id: 'camp-1' });
+
+    const rejected = [
+      'who should reply?',
+      { question: 'Who should reply?' },
+      [{ answer: 'the head of finance' }],
+      [{ question: '   ', answer: 'x' }],
+      [{ question: 'x'.repeat(500), answer: 'y' }],
+      [{ question: 'Who should reply?', answer: 'y'.repeat(5000) }],
+      // One more than the clarify pass is ever allowed to ask.
+      Array.from({ length: 9 }, (_unused, index) => ({ question: `Q${index}?`, answer: 'yes' }))
+    ];
+
+    for (const clarifications of rejected) {
+      expect(await rejectionStatus(updateCampaign(OWNER, 'camp-1', { clarifications }))).toBe(400);
+    }
+
+    expect(queriesOn('campaigns', 'update')).toHaveLength(0);
+    expect(campaignRows[0].clarifications).toBeNull();
+  });
+
+  /**
+   * The key-by-key guarantee, re-pinned now that two more fields are editable:
+   * adding an editable field must not open the door for the four that are not.
+   */
+  it('still cannot change status, user_id, mode or id alongside the new fields', async () => {
+    seedCampaign({ id: 'camp-1' });
+
+    await updateCampaign(OWNER, 'camp-1', {
+      brief: BRIEF,
+      clarifications: [{ question: 'Who should reply?', answer: 'the head of finance' }],
+      status: 'sending',
+      user_id: STRANGER,
+      mode: 'template',
+      id: 'camp-hijacked'
+    });
+
+    const [write] = queriesOn('campaigns', 'update');
+    expect(Object.keys(write.values).sort()).toEqual(['brief', 'clarifications']);
+    expect(campaignRows[0].status).toBe('draft');
+    expect(campaignRows[0].user_id).toBe(OWNER);
+    expect(campaignRows[0].mode).toBe('voice');
+    expect(campaignRows[0].id).toBe('camp-1');
+  });
 });
 
 describe('campaign logging', () => {
-  it('logs ids and counts only — never a name, subject or template body', async () => {
+  it('logs ids and counts only — never a name, subject, template, brief or answer', async () => {
     const created = await createCampaign(OWNER, {
       name: NAME,
       mode: 'template',
       templateBody: TEMPLATE,
-      subjectTemplate: SUBJECT
+      subjectTemplate: SUBJECT,
+      brief: BRIEF
     });
 
     await listCampaigns(OWNER);
     await getCampaign(OWNER, created.id);
     await updateCampaign(OWNER, created.id, { name: NAME, subjectTemplate: SUBJECT });
+    await updateCampaign(OWNER, created.id, {
+      brief: BRIEF,
+      clarifications: [{ question: 'Who should reply?', answer: 'the head of finance' }]
+    });
 
     const serialized = loggedText();
 
-    // A template body is user-authored email content (CLAUDE.md § Privacy).
+    // A template body is user-authored email content (CLAUDE.md § Privacy), and
+    // so are the brief and the clarification answers (migration 004).
     expect(serialized).not.toContain(NAME);
     expect(serialized).not.toContain(SUBJECT);
     expect(serialized).not.toContain('{{personalized}}');
     expect(serialized).not.toContain('worth 15 minutes');
+    expect(serialized).not.toContain('Nordic shipping');
+    expect(serialized).not.toContain('Who should reply?');
+    expect(serialized).not.toContain('the head of finance');
 
     expect(logger.info).toHaveBeenCalledWith('campaign_created', {
       userId: OWNER,

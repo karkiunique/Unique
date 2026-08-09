@@ -7,6 +7,7 @@ import {
   getCampaign,
   updateCampaign
 } from '../services/campaigns.js';
+import { clarifyCampaign } from '../services/clarify.js';
 import { addLeads, MAX_LEADS_PER_REQUEST } from '../services/leads.js';
 import {
   beginCampaignGeneration,
@@ -41,21 +42,29 @@ function campaignIdOf(req) {
 
 /**
  * POST /api/campaigns — create one. Body is {name, mode, template_body?,
- * subject_template?}, exactly the contract in CLAUDE.md.
+ * subject_template?, brief?}, exactly the contract in CLAUDE.md.
  *
  * The owner is req.user.id and nothing else: a user_id in the body is ignored,
  * never read.
+ *
+ * The BRIEF is what this campaign is actually about, and becomes the generation
+ * goal. It is optional here — a campaign can be created and briefed later — so
+ * it is forwarded only when the body carries it. Never logged: it is
+ * user-authored content, same as a template body.
  */
 router.post('/campaigns', requireAuth, async (req, res) => {
   const payload = bodyOf(req);
+  const input = {
+    name: payload.name,
+    mode: payload.mode,
+    templateBody: payload.template_body,
+    subjectTemplate: payload.subject_template
+  };
+
+  if ('brief' in payload) input.brief = payload.brief;
 
   try {
-    const campaign = await createCampaign(req.user.id, {
-      name: payload.name,
-      mode: payload.mode,
-      templateBody: payload.template_body,
-      subjectTemplate: payload.subject_template
-    });
+    const campaign = await createCampaign(req.user.id, input);
 
     return res.status(201).json({ campaign });
   } catch (err) {
@@ -177,11 +186,36 @@ router.post('/campaigns/:id/generate', requireAuth, async (req, res) => {
 });
 
 /**
- * PATCH /api/campaigns/:id — edit the name, template body or subject.
+ * POST /api/campaigns/:id/clarify — what the brief did not say.
+ *
+ * The brief is read from the stored campaign rather than taken from the body:
+ * the row is the record, and it is resolved by (id, user_id) first, so another
+ * user's campaign is a 404 and not a free model call against their words.
+ *
+ * The response is questions only. Nothing about the brief, the questions or the
+ * model's reply reaches a log line — ids and a count, as everywhere else.
+ */
+router.post('/campaigns/:id/clarify', requireAuth, async (req, res) => {
+  const campaignId = campaignIdOf(req);
+  if (!campaignId) return res.status(400).json({ error: 'Invalid campaign id' });
+
+  try {
+    const result = await clarifyCampaign(req.user.id, campaignId);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return fail(res, 'campaign_clarify_failed', req.user.id, err, 'Could not draft the questions');
+  }
+});
+
+/**
+ * PATCH /api/campaigns/:id — edit the name, template body, subject, brief, or
+ * the answers from the clarify pass.
  *
  * The patch is assembled key by key rather than forwarded: `status`, `user_id`,
  * `mode` and `id` are dropped structurally, so no future change to the service
- * can accidentally make them settable from a request body.
+ * can accidentally make them settable from a request body. Two more editable
+ * fields do not change that — each is named here, one key at a time.
  */
 router.patch('/campaigns/:id', requireAuth, async (req, res) => {
   const campaignId = campaignIdOf(req);
@@ -193,6 +227,8 @@ router.patch('/campaigns/:id', requireAuth, async (req, res) => {
   if ('name' in payload) patch.name = payload.name;
   if ('template_body' in payload) patch.templateBody = payload.template_body;
   if ('subject_template' in payload) patch.subjectTemplate = payload.subject_template;
+  if ('brief' in payload) patch.brief = payload.brief;
+  if ('clarifications' in payload) patch.clarifications = payload.clarifications;
 
   try {
     const campaign = await updateCampaign(req.user.id, campaignId, patch);

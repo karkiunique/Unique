@@ -62,6 +62,10 @@ const PROFILE = {
 const TEMPLATE = 'Hi {{first_name}},\n\n{{personalized}}\n\nthanks,\nAna';
 const SUBJECT_TEMPLATE = 'a question about {{company}}';
 
+const BRIEF =
+  'We run payroll for Nordic shipping firms. Blackwood just bought two fleets and their ' +
+  'finance team is still on manual timesheets.';
+
 let campaignRows = [];
 let leadRows = [];
 let profileRows = [];
@@ -181,6 +185,8 @@ function seedCampaign(overrides = {}) {
     mode: 'voice',
     template_body: null,
     subject_template: null,
+    brief: null,
+    clarifications: null,
     status: 'draft',
     ...overrides
   };
@@ -234,6 +240,22 @@ async function generateAll(goal) {
 
 function promptsSentToModel() {
   return modelCalls.map((call) => call.prompt);
+}
+
+/**
+ * Just the goal the draft prompt carried — everything between the "what this
+ * email needs to do" heading and the sign-off block that follows it.
+ *
+ * Sliced rather than searched over the whole prompt on purpose: a brief happens
+ * to mention a recipient's employer, so `prompt.toContain(brief)` could pass off
+ * the recipient block while the goal itself was empty.
+ */
+function goalSentToModel() {
+  const prompt = modelCalls.find((call) => call.kind === 'draft')?.prompt ?? '';
+  const start = prompt.indexOf('WHAT THIS EMAIL NEEDS TO DO:');
+  const end = prompt.indexOf('SIGN-OFF (required)');
+
+  return start === -1 || end <= start ? '' : prompt.slice(start, end);
 }
 
 function callsForLead(leadId) {
@@ -366,6 +388,76 @@ describe('voice mode', () => {
 
     await generateAll('book a 15 minute demo');
     expect(promptsSentToModel()[0]).toContain('book a 15 minute demo');
+  });
+
+  /**
+   * THE REGRESSION THIS WHOLE COLUMN EXISTS FOR (migration 004). A campaign
+   * called "First test" produced six letters about running a first test, because
+   * the NAME was the goal. The brief is the goal; the name is not the input.
+   */
+  it('sends the brief as the goal, and not the campaign name', async () => {
+    seedCampaign({ name: 'First test', brief: BRIEF });
+    seedProfile();
+    seedNames(1);
+
+    await generateAll();
+
+    const goal = goalSentToModel();
+    expect(goal).toContain(BRIEF);
+    expect(goal).not.toContain('First test');
+    expect(promptsSentToModel()[0]).not.toContain('First test');
+  });
+
+  /**
+   * A skipped question carries a null answer and is dropped whole. A dangling
+   * "Q: ... A: null" in the prompt is worse than no question at all — it tells
+   * the model there is nothing there rather than that we never asked.
+   */
+  it('adds the answered clarifications to the goal and leaves the skipped ones out', async () => {
+    seedCampaign({
+      brief: BRIEF,
+      clarifications: [
+        { question: 'Who should reply?', answer: 'the head of finance' },
+        { question: 'What proof do you have?', answer: null },
+        { question: 'What is the ask?', answer: '   ' }
+      ]
+    });
+    seedProfile();
+    seedNames(1);
+
+    await generateAll();
+
+    const goal = goalSentToModel();
+    expect(goal).toContain(BRIEF);
+    expect(goal).toContain('Who should reply?');
+    expect(goal).toContain('the head of finance');
+
+    expect(goal).not.toContain('What proof do you have?');
+    expect(goal).not.toContain('What is the ask?');
+    expect(goal).not.toContain('null');
+    expect(goal).not.toContain('undefined');
+  });
+
+  it('falls back to the campaign name when the brief is empty, not to nothing', async () => {
+    seedCampaign({ name: 'Series A outreach', brief: '   ' });
+    seedProfile();
+    seedNames(1);
+
+    await generateAll();
+
+    expect(goalSentToModel()).toContain('Series A outreach');
+  });
+
+  it('still prefers an explicit per-run goal over the brief', async () => {
+    seedCampaign({ brief: BRIEF });
+    seedProfile();
+    seedNames(1);
+
+    await generateAll('book a 15 minute demo');
+
+    const goal = goalSentToModel();
+    expect(goal).toContain('book a 15 minute demo');
+    expect(goal).not.toContain('Nordic shipping');
   });
 
   it("prefers the user's own subject line over the model's when they wrote one", async () => {
