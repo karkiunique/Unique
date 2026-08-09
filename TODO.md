@@ -9,11 +9,51 @@ picking it up needs no re-investigation.
 
 **Phase 3 is COMPLETE.** Loops 1–4 are built, mutation-verified and committed.
 
-**1. Wire `selectSendableLeads` into the send path** — the first thing Phase 4 must do. Detail below.
-**2. Phase 4** — send queue, worker, unsubscribe route/page, reply watcher, dashboard.
+## ⛔ PHASE 4 BLOCKERS — read before writing a single line of Phase 4 code
+
+Two gate-integrity requirements, both recorded as dated decisions in CLAUDE.md. **Neither is a
+cleanup.** Phase 4 is where sending becomes autonomous, and these are the two places where the
+human-approval guarantee can be silently lost. Do not treat them as follow-ups to fit in later.
+
+**BLOCKER 1 — every send MUST route through `selectSendableLeads`. Top wiring requirement of Phase 4.**
+It is the server-side enforcement of "only `approved` leads may ever be sendable", fully tested and
+mutation-verified (three mutations kill it, including the full gate breach) — but it has **no
+production caller**. The tests prove the function behaves; nothing yet proves the send path uses it.
+
+**Building the Phase 4 queue without routing through it = autonomous sending with the approval gate
+bypassed.** That is not hypothetical here: this project already shipped a trailing-slash route
+variant that sent email with no confirmation and passed a fully green 32-test suite.
+
+`POST /campaigns/:id/send` and `sendWorker.js` must select leads through this function and must not
+re-query `leads` themselves. A test must FAIL if they stop doing so — **assert on the call, not the
+outcome**, because a re-query can return an identical result set while bypassing the gate entirely.
+Outcome-based assertions are provably blind to this class of bug; that is exactly how the two
+regenerate-path owner filters survived their first mutation round in Loop 4.
+
+**BLOCKER 2 — harden the compose 80-point fidelity floor server-side, when the send path is touched.**
+`web/src/components/FidelityGate.jsx` blocks a sub-80 draft from reaching the confirm step. Nothing in
+`routes/send.js` or `services/send.js` does, so the floor is bypassable by a direct API call.
+
+Not a CLAUDE.md violation — the non-negotiable requires the exact-content *confirmation* gate to be
+server-side, and that gate is server-side and mutation-verified. But the fidelity floor is a UI-only
+gate, and this repo's history on UI-only gates is unambiguous.
+
+**Preserve the escape hatch when hardening it:** per CLAUDE.md § 3, once the user manually edits the
+body the score goes stale and the gate lifts — the words are theirs at that point. A server-side floor
+that ignores this traps users behind a score the model cannot reach.
+
+## Then
+
+**Phase 4** — send queue, worker, unsubscribe route/page, reply watcher, dashboard.
 
 **STOP: Phase 4 needs Redis**, which the repo owner installs manually. Do not scaffold a queue
 against a Redis that is not running. Confirm Redis is up before starting.
+
+## And keep flagging contract drift
+
+Loop 4 added two routes and they were built before being recorded in CLAUDE.md — backwards from the
+stated process, since the route list in that file **is** the contract. Record a route in CLAUDE.md
+*before* building it, and say so out loud when it is about to happen the other way round.
 
 ---
 
@@ -57,21 +97,14 @@ were caught, since the outward 404 came from a different layer entirely.
 
 ---
 
-# 1. `selectSendableLeads` has no caller — wire it in Phase 4
+# 1. Phase 4 — carried-forward obligations
 
-`server/src/services/leadReview.js` exports `selectSendableLeads`, the server-side enforcement of
-"only `approved` leads may ever be sendable." It is fully tested (8 assertions, three mutations kill
-it, including the full gate breach) but **nothing in production calls it** — no lead-based send path
-exists yet, and `services/send.js` writes `lead_id: null` for one-off compose sends.
+**The two hard blockers are at the top of this file. This section is the rest.**
 
-**The tests prove the function behaves. Nothing proves Phase 4 will actually route sending through
-it.** That wiring is the risk, not the function. When `POST /campaigns/:id/send` is built, it must
-select its leads through this function and not re-query `leads` itself, and a test must fail if it
-stops doing so.
-
----
-
-# 2. Phase 4 — carried-forward obligations
+Supporting detail for BLOCKER 1: `selectSendableLeads` lives in
+`server/src/services/leadReview.js` with 8 assertions behind it. No lead-based send path exists yet —
+`services/send.js` writes `lead_id: null` for one-off compose sends — which is why it currently has
+no caller.
 
 Recorded here so they are not rediscovered:
 
@@ -99,17 +132,6 @@ Recorded here so they are not rediscovered:
 Over CLAUDE.md's "~300 lines, split when bigger." Left as-is deliberately: it had just been
 mutation-verified across nine mutations, and splitting freshly-verified code is regression risk for
 no behavioural gain. Split it the next time it is opened for a real change, not before.
-
-## The compose flow's 80-point fidelity floor is enforced client-side only
-
-`web/src/components/FidelityGate.jsx` blocks a sub-80 draft from reaching the confirm step. There is
-no equivalent check in `routes/send.js` or `services/send.js`, so the floor is bypassable by a direct
-API call.
-
-This is **not** a violation of CLAUDE.md's non-negotiable, which requires the exact-content
-confirmation gate to be server-side — and that one *is* server-side and mutation-verified. But the
-floor itself is a UI-only gate, and this project's own history is that UI-only gates get bypassed.
-Worth closing when the send path is next touched. Pre-existing; not introduced by Phase 3.
 
 ## The register cannot show sends that predate migration 003
 

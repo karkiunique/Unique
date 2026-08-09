@@ -316,6 +316,40 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 
 ## Decisions (dated — do not silently revisit)
 
+### 2026-08-08 — TWO HARD BLOCKERS ON PHASE 4 (highest priority — read before writing Phase 4 code)
+
+Both are gate-integrity requirements, not cleanups. Phase 4 is where sending becomes autonomous, and
+these are the two places where the human-approval guarantee can be silently lost.
+
+**BLOCKER 1 — every send MUST route through `selectSendableLeads`. This is the top wiring
+requirement of Phase 4.**
+`server/src/services/leadReview.js` exports `selectSendableLeads`, the server-side enforcement of
+"only `approved` leads may ever be sendable." It is fully tested and mutation-verified — three
+mutations kill it, including the full gate breach — but **it has no production caller.** The tests
+prove the function behaves; nothing yet proves the send path uses it.
+
+Building the Phase 4 queue without routing through it means **autonomous sending with the approval
+gate bypassed** — the exact failure this project has already shipped once, when a trailing-slash
+route variant sent email with no confirmation and passed a fully green 32-test suite.
+
+`POST /campaigns/:id/send` and `sendWorker.js` must select their leads through this function and
+must not re-query `leads` themselves. A test must FAIL if they stop doing so — assert on the call,
+not on the outcome, because a re-query can produce an identical result set while bypassing the gate.
+
+**BLOCKER 2 — harden the compose 80-point fidelity floor server-side when the send path is touched.**
+`web/src/components/FidelityGate.jsx` blocks a sub-80 draft from reaching the confirm step. There is
+no equivalent check in `routes/send.js` or `services/send.js`, so the floor is bypassable by a direct
+API call.
+
+This is not a violation of the § Security non-negotiable — that requires the exact-content
+*confirmation* gate to be server-side, and that gate is server-side and mutation-verified. But the
+fidelity floor itself is a UI-only gate, and this repo's history is unambiguous that UI-only gates get
+bypassed. Close it when the send path is next opened.
+
+Preserve the escape hatch when hardening: § 3 states that once the user manually edits the body the
+score goes stale and the gate lifts, because at that point the words are theirs. A server-side floor
+that ignores this would trap users behind a score the model cannot reach.
+
 ### 2026-08-08 — No "Approve All" on the review screen; approval is per-lead only
 TODO.md allowed an Approve All provided it "only applies to leads the user has actually opened."
 On implementation that condition turned out to be unenforceable, so the feature was not built.
