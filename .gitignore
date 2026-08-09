@@ -32,3 +32,8 @@ pnpm-debug.log*
 supabase/.temp/
 supabase/.branches/
 files.zip
+
+# local lead lists — a filled-in CSV carries real recipient addresses, which is
+# third-party personal data (CLAUDE.md § Privacy). Never commit one.
+*-leads.csv
+*-test-leads.csv
