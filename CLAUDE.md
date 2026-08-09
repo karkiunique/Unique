@@ -98,9 +98,16 @@ create table campaigns (
   mode text not null check (mode in ('voice','template')),
   template_body text,                -- null in voice mode; may contain {{first_name}}, {{company}}, {{personalized}}
   subject_template text,
+  brief text,                        -- migration 004: what this campaign is actually about, in the user's words
+  clarifications jsonb,              -- migration 004: [{question, answer}] from the clarify pass. Answers may be null (skipped).
   status text default 'draft' check (status in ('draft','generating','review','sending','paused','done')),
   created_at timestamptz default now()
 );
+-- migration 004 adds `brief` and `clarifications`. Before them the generation goal fell back to the
+-- campaign NAME, so a campaign called "First test" produced six letters about running a first test.
+-- CLAUDE.md § 3 always specified "the user's campaign goal" as a prompt input; there was simply no
+-- column holding one. Both are user-authored content about their own business: treat them exactly
+-- like `template_body` — never logged, never in an error message.
 
 create table leads (
   id uuid primary key default gen_random_uuid(),
@@ -159,6 +166,8 @@ GET  /voice                  -> current voice profile
 POST /campaigns              -> create campaign {name, mode, template_body?, subject_template?}
 GET  /campaigns              -> list with counts (sent/replied)
 GET  /campaigns/:id          -> detail + leads
+POST /campaigns/:id/clarify  -> from the brief, return <=8 clarifying questions (added 2026-08-09)
+PATCH /campaigns/:id         -> edit name/template/subject, and the brief + clarification answers
 POST /campaigns/:id/leads    -> bulk add leads (CSV parsed client-side, JSON array here)
 POST /campaigns/:id/generate -> batch-generate emails for all pending leads (async, updates statuses)
 GET  /leads/:id              -> one lead's full letter for the review screen (added 2026-08-08)
@@ -315,6 +324,44 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-09 — The campaign brief + clarify pass; and the review deck
+
+**The problem, found by a real batch test.** Six letters were generated for a campaign named
+"First test". All six were *about running a first test* — subjects came out as "First test", one body
+ended "Just testing to make sure things are working on my end." The cause was not the voice model:
+`campaignGoal()` fell back to `campaign.name` because **no goal column existed**. § 3 had always
+listed "the user's campaign goal" as a prompt input; nothing stored one.
+
+**The brief.** `campaigns.brief` holds the user's own in-depth description of what the email is
+about, written in the campaign builder at creation. It, not the name, is the generation goal.
+
+**The clarify pass.** `POST /campaigns/:id/clarify` sends the brief to the model and returns **at most
+8** questions. They are asked **one at a time, conversationally**, each skippable — a wall of eight
+boxes reads as work and gets abandoned. Answers are stored in `campaigns.clarifications` as
+`[{question, answer}]` and feed generation alongside the brief.
+
+Questions must interrogate what a cold email actually needs and the brief did not say — who should
+reply, what the ask is, what proof exists, what makes this recipient set right. They must never ask
+for anything already in the brief, and never ask for the user's writing style: style comes from the
+voice profile, which is derived from their real sent mail, and asking would invite them to describe a
+voice rather than have it observed.
+
+**A skipped question is a first-class outcome.** Generation proceeds on the brief plus whatever was
+answered. Never block drafting on an unanswered question.
+
+**The review deck.** The review screen is a deck, not a click-in/click-out list: one letter fills the
+view, **Enter approves and advances**, arrows move without approving, `E` edits, `Esc` returns to the
+list, and any letter can be revisited at any time.
+
+This does NOT weaken the 2026-08-08 per-lead approval decision — it strengthens it. Every letter is
+rendered full-screen before it can be approved, and every approval is still one explicit action
+against one lead through `PATCH /leads/:id`. There is still no Approve All and no server change.
+
+**The known tradeoff, stated so it is not rediscovered:** Enter-to-approve makes a mistaken or
+held-down keypress able to approve a letter the user skimmed. That is accepted for the speed it buys
+on a long batch. If it proves to be a real problem, add an undo — do not add a confirm dialog on
+every letter, which would rebuild the friction the deck exists to remove.
 
 ### 2026-08-08 — TWO HARD BLOCKERS ON PHASE 4 (highest priority — read before writing Phase 4 code)
 
