@@ -7,6 +7,8 @@ import healthRoutes from './routes/health.js';
 import meRoutes from './routes/me.js';
 import gmailRoutes from './routes/gmail.js';
 import voiceRoutes from './routes/voice.js';
+import campaignRoutes from './routes/campaigns.js';
+import leadRoutes from './routes/leads.js';
 import sendRoutes from './routes/send.js';
 import unsubscribeRoutes from './routes/unsubscribe.js';
 import devInspectRoutes from './routes/devInspect.js';
@@ -55,6 +57,8 @@ export function createApp() {
   app.use('/api', meRoutes);
   app.use('/api', gmailRoutes);
   app.use('/api', voiceRoutes);
+  app.use('/api', campaignRoutes);
+  app.use('/api', leadRoutes);
   app.use('/api', sendRoutes);
   app.use('/api', unsubscribeRoutes);
 

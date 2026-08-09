@@ -12,6 +12,10 @@ const browserGlobals = {
   navigator: 'readonly',
   URL: 'readonly',
   URLSearchParams: 'readonly',
+  // WHATWG encoding APIs, not ECMAScript builtins, so they need declaring.
+  // lib/csv.js decodes an uploaded file's bytes with them.
+  TextDecoder: 'readonly',
+  TextEncoder: 'readonly',
   setTimeout: 'readonly',
   clearTimeout: 'readonly',
   setInterval: 'readonly',
@@ -36,7 +40,11 @@ const testGlobals = {
   process: 'readonly',
   HTMLElement: 'readonly',
   HTMLTextAreaElement: 'readonly',
-  Event: 'readonly'
+  Event: 'readonly',
+  KeyboardEvent: 'readonly',
+  // CSV upload tests hand the page a real File built from bytes.
+  File: 'readonly',
+  Blob: 'readonly'
 };
 
 export default [

@@ -29,6 +29,7 @@ const TO_FIELD = 'To — email';
 const GOAL_FIELD = 'What should it do?';
 const DRAFT = { name: 'Draft in my voice' };
 const REVIEW = { name: 'Review & send' };
+const SEND = { name: 'Send from my Gmail' };
 
 function draft(overrides = {}) {
   return { subject: SUBJECT, body: BODY, fidelityScore: 92, violations: [], ...overrides };
@@ -217,6 +218,33 @@ describe('ComposePage — reaching the confirmation step', () => {
     expect(container.querySelector('.confirm-to').textContent).toBe(TO);
     expect(container.querySelector('.confirm-subject').textContent).toBe(SUBJECT);
     expect(container.querySelector('.confirm-body').textContent).toBe('hey Sam');
+  });
+
+  /**
+   * A first send is not a reply, and its subject is shaped in the browser too —
+   * trimmed before the confirmation renders it, so the server's own trim has
+   * nothing left to change. Anything tidied after the approval would be a value
+   * the user never actually read.
+   */
+  it('trims the subject before showing it, then sends exactly what it showed', async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(<ComposePage />);
+    await user.type(screen.getByLabelText(TO_FIELD), TO);
+    await user.type(screen.getByLabelText('Subject'), `  ${SUBJECT}  `);
+    await user.type(screen.getByLabelText('Email body'), 'hey Sam');
+    await user.click(screen.getByRole('button', REVIEW));
+    await screen.findByText('Send this letter?');
+
+    const shownSubject = container.querySelector('.confirm-subject').textContent;
+    expect(shownSubject).toBe(SUBJECT);
+    // Nothing is threading this, so nothing may prefix it.
+    expect(shownSubject).not.toMatch(/^re:/i);
+
+    await user.click(screen.getByRole('button', SEND));
+
+    await waitFor(() => expect(sendCalls()).toHaveLength(1));
+    expect(sendCalls()[0][1].subject).toBe(shownSubject);
   });
 
   it('Cancel on the confirm step returns to editing without sending', async () => {

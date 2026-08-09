@@ -266,6 +266,155 @@ describe('ConfirmSendDialog — recovering a Gmail grant', () => {
   });
 });
 
+/**
+ * A follow-up reuses this dialog rather than getting one of its own, so every
+ * gate assertion above is re-asserted here with the threading props present. The
+ * extra props may add ids to the payload; they may not soften a single guarantee
+ * about what was displayed, what is sent, or when.
+ */
+describe('ConfirmSendDialog — following up inside a thread', () => {
+  const THREAD_ID = 't-1';
+  const IN_REPLY_TO = '<m2@mail.example>';
+
+  function renderFollowUp(overrides = {}) {
+    return renderDialog({ threadId: THREAD_ID, inReplyTo: IN_REPLY_TO, ...overrides });
+  }
+
+  it('sends no threadId or inReplyTo for an ordinary first send', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 'thr-1' });
+    const user = userEvent.setup();
+
+    renderDialog();
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost.mock.calls[0][1]).toEqual({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: true
+    });
+  });
+
+  it('does NOT call /send on render with threading props — only on the Send click', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    renderFollowUp();
+
+    expect(apiPost).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost).toHaveBeenCalledTimes(1);
+    expect(apiPost.mock.calls[0][0]).toBe('/send');
+  });
+
+  it('sends the displayed To, Subject and Body byte-for-byte, plus the thread ids', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    const { container } = renderFollowUp();
+
+    // The full body is on screen first — no truncation, no ellipsis.
+    expect(container.querySelector('.confirm-body').textContent).toBe(BODY);
+    expect(container.querySelector('.confirm-body').textContent).not.toContain('…');
+
+    const shownTo = container.querySelector('.confirm-to').textContent;
+    const shownSubject = container.querySelector('.confirm-subject').textContent;
+    const shownBody = container.querySelector('.confirm-body').textContent;
+
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost.mock.calls[0][1]).toEqual({
+      to: shownTo,
+      subject: shownSubject,
+      body: shownBody,
+      threadId: THREAD_ID,
+      inReplyTo: IN_REPLY_TO,
+      confirmed: true
+    });
+  });
+
+  /**
+   * The dialog is the last place a subject may be touched, so it touches none:
+   * the caller hands it the final string — "Re: " and all — and it displays and
+   * posts that. FollowUpForm owns the prefix precisely so it lands before this
+   * screen renders; see ThreadFollowUp.test.jsx for that guarantee end to end.
+   */
+  it('adds nothing to the subject of a follow-up — no "Re: " appears here', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    const { container } = renderFollowUp({ subject: `Re: ${SUBJECT}` });
+
+    expect(container.querySelector('.confirm-subject').textContent).toBe(`Re: ${SUBJECT}`);
+
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost.mock.calls[0][1].subject).toBe(`Re: ${SUBJECT}`);
+    // One prefix, because the caller supplied one. The dialog never stacks another.
+    expect(apiPost.mock.calls[0][1].subject).not.toMatch(/^re:\s*re:/i);
+  });
+
+  it('passes a plain subject through untouched even with the threading props set', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    const { container } = renderFollowUp();
+
+    const shownSubject = container.querySelector('.confirm-subject').textContent;
+    expect(shownSubject).toBe(SUBJECT);
+
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(apiPost.mock.calls[0][1].subject).toBe(shownSubject);
+  });
+
+  it('disables the send button while a follow-up is in flight', async () => {
+    const pending = deferred();
+    apiPost.mockReturnValue(pending.promise);
+    const user = userEvent.setup();
+
+    renderFollowUp();
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(screen.getByRole('button', SENDING)).toBeDisabled();
+    expect(screen.queryByRole('button', SEND)).not.toBeInTheDocument();
+    expect(apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('Cancel on a follow-up sends nothing', async () => {
+    const user = userEvent.setup();
+
+    const { onCancel } = renderFollowUp();
+    await user.click(screen.getByRole('button', CANCEL));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it('lets the caller name the way out after the send, defaulting to "Write another"', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 't-1' });
+    const user = userEvent.setup();
+
+    renderFollowUp({ doneLabel: 'Back to the thread', doneIcon: 'arrow-left' });
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(await screen.findByRole('button', { name: 'Back to the thread' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Write another' })).not.toBeInTheDocument();
+  });
+
+  it('still says "Write another" when no label is given', async () => {
+    apiPost.mockResolvedValue({ messageId: 'msg-1', threadId: 'thr-1' });
+    const user = userEvent.setup();
+
+    renderDialog();
+    await user.click(screen.getByRole('button', SEND));
+
+    expect(await screen.findByRole('button', { name: 'Write another' })).toBeInTheDocument();
+  });
+});
+
 describe('ConfirmSendDialog — the overlay', () => {
   it('closes on an overlay click while still confirming, and sends nothing', async () => {
     const user = userEvent.setup();

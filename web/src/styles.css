@@ -1599,6 +1599,36 @@ a {
   opacity: 0.5;
 }
 
+.reg-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.reg-search {
+  flex: 1;
+  min-width: 0;
+  max-width: 420px;
+  margin-bottom: 0;
+}
+
+.reg-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* Refreshing is a decision, so the page says out loud how old what you are
+   looking at is. */
+.reg-updated {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .register {
   border: 1.5px solid var(--ink);
 }
@@ -1618,10 +1648,19 @@ a {
   color: rgba(241, 233, 214, 0.5);
 }
 
+/* A button, because the whole line opens the thread. The type resets below keep
+   it reading as a ruled row and not as a control. */
 .reg-row {
   display: flex;
   align-items: flex-start;
   padding: 18px 16px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
 }
 
 .reg-row + .reg-row {
@@ -1630,6 +1669,11 @@ a {
 
 .reg-row.replied {
   background: var(--paper-lift);
+}
+
+.reg-row:hover,
+.reg-row.replied:hover {
+  background: var(--inset);
 }
 
 .reg-no {
@@ -1698,6 +1742,132 @@ a {
   margin-top: 22px;
 }
 
+/* ---- one thread, read in full ---- */
+.thread-back {
+  margin-bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thread-kicker {
+  color: var(--red);
+  margin-top: 10px;
+}
+
+.thread-note {
+  margin: 10px 0 0;
+  font-size: 18px;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.msg-sheet {
+  padding: 18px 22px 20px;
+}
+
+/* Ours is squared off in ink; a reply is set apart with the editorial red so the
+   two sides of the conversation are never mistaken for each other. */
+.msg-sheet.from-self {
+  border-left: 4px solid var(--ink);
+}
+
+.msg-sheet:not(.from-self) {
+  border-left: 4px solid var(--red);
+  background: var(--panel);
+}
+
+.msg-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.msg-from {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.msg-mark {
+  flex-shrink: 0;
+}
+
+.msg-sheet:not(.from-self) .msg-mark {
+  color: var(--red);
+}
+
+.msg-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin-top: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Real email content, rendered as text: pre-wrap keeps the sender's own line
+   breaks without anything being parsed as markup. */
+.msg-body {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--ink);
+  margin: 14px 0 0;
+}
+
+.thread-followup {
+  margin-top: 22px;
+}
+
+/* ---- the follow-up composer ---- */
+.followup {
+  margin-top: 22px;
+  border-top: 1.5px solid var(--ink);
+  padding-top: 18px;
+}
+
+.followup-head {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.followup-body {
+  min-height: 180px;
+}
+
+.followup-note {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 10px 0 0;
+}
+
+.followup-actions {
+  gap: 16px;
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .reg-toolbar {
+    display: block;
+  }
+
+  .reg-controls {
+    align-items: flex-start;
+    margin-top: 14px;
+  }
+}
+
 @media (max-width: 980px) {
   .dossier,
   .compose {
@@ -1725,5 +1895,500 @@ a {
   .reg-sent,
   .reg-status {
     width: auto;
+  }
+}
+
+/* ---- campaigns: the roll and the builder ----
+   The roll reuses the register's ruled rows; only the campaign-specific marks
+   below are new. */
+.camp-count {
+  margin: 0;
+}
+
+.camp-mode {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule-2);
+  padding: 2px 6px;
+  margin-right: 9px;
+}
+
+.camp-tally {
+  display: block;
+}
+
+.camp-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border: 1px solid var(--rule-2);
+  padding: 5px 9px;
+}
+
+/* Something is actually moving in this campaign — the one status that gets colour. */
+.camp-status.live {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.builder {
+  display: grid;
+  grid-template-columns: 0.82fr 1.1fr;
+  gap: 44px;
+  align-items: start;
+}
+
+.mode-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.mode-toggle {
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.mode-option {
+  flex: 1;
+}
+
+.mode-note {
+  margin: 10px 0 0;
+  font-size: 15px;
+}
+
+.mergebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mergevar {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--rule-2);
+  padding: 5px 9px;
+}
+
+.mergevar:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* The one marker a template cannot go without, marked as such before it is missed. */
+.mergevar.required {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.template-input {
+  min-height: 260px;
+}
+
+.voice-note {
+  padding: 22px 24px;
+}
+
+@media (max-width: 980px) {
+  .builder {
+    grid-template-columns: 1fr;
+    gap: 34px;
+  }
+}
+
+/* ---- the recipient list: file, column mapping, preview, outcome ---- */
+.leadload {
+  margin-top: 38px;
+  border-top: 1px solid var(--rule);
+  padding-top: 26px;
+}
+
+.lead-note {
+  margin: 6px 0 18px;
+  max-width: 62ch;
+}
+
+.lead-file {
+  padding: 10px 12px;
+}
+
+.lead-counts,
+.lead-progress {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  margin: 14px 0;
+}
+
+.lead-map {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 20px;
+  margin: 18px 0 22px;
+}
+
+.lead-map-field {
+  margin: 0;
+}
+
+.lead-preview {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
+.lead-preview th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 1px solid var(--rule);
+  padding: 6px 10px 6px 0;
+}
+
+.lead-preview td {
+  border-bottom: 1px solid var(--rule-2);
+  padding: 7px 10px 7px 0;
+  vertical-align: top;
+}
+
+.lead-result {
+  margin-top: 24px;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+}
+
+.lead-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lead-outcome {
+  margin-top: 16px;
+}
+
+.lead-reasons {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.lead-issues {
+  margin-bottom: 18px;
+}
+
+/* Loud enough to read, quiet enough not to look like a refusal — nothing here
+   blocks an upload. */
+.lead-flags {
+  margin-top: 20px;
+  border-left: 2px solid var(--red);
+  padding: 4px 0 4px 14px;
+}
+
+.lead-advisory {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+/* The file row number, quiet next to the address it belongs to. */
+.lead-row {
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 980px) {
+  .lead-map {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- the review screen: drafting progress, and one letter read at a time ---- */
+.lead-status {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* Whether this reviewer has opened this letter. Quiet when they have, marked
+   when they have not — the unread ones are the work still to do. */
+.lead-read {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.lead-read.unread {
+  color: var(--red);
+}
+
+.lead-lowfi {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-top: 4px;
+}
+
+.campgen {
+  margin-top: 34px;
+  border-top: 1px solid var(--rule);
+  padding-top: 24px;
+}
+
+.campgen-head {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.campgen-count {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+.campgen-bar {
+  height: 6px;
+  border: 1px solid var(--rule-2);
+  background: var(--inset);
+}
+
+.campgen-fill {
+  display: block;
+  height: 100%;
+  background: var(--red);
+  transition: width 240ms linear;
+}
+
+.campgen-progress {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  margin: 12px 0 0;
+}
+
+.campgen-note,
+.campgen-done {
+  margin: 14px 0 0;
+  font-size: 15px;
+  max-width: 62ch;
+}
+
+.review {
+  margin-top: 34px;
+  border-top: 1px solid var(--rule);
+  padding-top: 24px;
+}
+
+.review-meta {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin: 0 0 14px;
+}
+
+.review-note {
+  margin: 14px 0 0;
+  max-width: 62ch;
+}
+
+.review-approved {
+  margin-top: 14px;
+}
+
+.review-actions {
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+/* ---- the brief, and the questions it left unanswered ----
+   The brief is the field the letters are written from, so it is given room to
+   be written in rather than a one-line slot. */
+.brief-input {
+  min-height: 132px;
+}
+
+.brief-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  max-width: 54ch;
+}
+
+/* One question at a time: a wall of eight boxes reads as work and gets
+   abandoned (CLAUDE.md, 2026-08-09). */
+.clarify {
+  max-width: 60ch;
+  margin-top: 8px;
+}
+
+.clarify-head {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.clarify-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.clarify-q {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.28;
+  margin: 0 0 20px;
+}
+
+.clarify-input {
+  min-height: 96px;
+}
+
+.clarify-actions {
+  gap: 12px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+/* A skip is a real choice, not a way out of the screen: it sits level with the
+   answer, at the weight of the thing it is. */
+.clarify-note {
+  margin: 18px 0 0;
+  font-size: 14px;
+}
+
+.clarify-failed {
+  margin-top: 22px;
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+}
+
+/* ---- the review deck: one letter at a time, dealt like cards ----
+   Forty letters through a click-in/click-out list is unbearable (CLAUDE.md,
+   2026-08-09), so the open letter takes the whole view. The list stays mounted
+   underneath, which is what lets Esc put the reviewer back where they were. */
+.deck {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-y: auto;
+  background: var(--paper);
+  background-image: radial-gradient(rgba(33, 28, 19, 0.022) 1px, transparent 1px);
+  background-size: 4px 4px;
+  outline: none;
+}
+
+.deck-inner {
+  max-width: 74ch;
+  margin: 0 auto;
+  padding: 40px 24px 56px;
+}
+
+.deck-head {
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+}
+
+.deck-marks {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+
+.deck-position,
+.deck-approved {
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* How many are done is the number the reviewer is working towards, so it is the
+   one that carries ink. */
+.deck-approved {
+  color: var(--red);
+}
+
+.deck-tag {
+  margin-left: 12px;
+}
+
+.deck-done {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+}
+
+.deck-done-line {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 20px;
+}
+
+/* The shortcuts stay on screen: a keyboard flow nobody can see is a keyboard
+   flow nobody uses. */
+.deck-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.deck-legend kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper-lift);
+  padding: 2px 6px;
+  margin-right: 4px;
+}
+
+@media (max-width: 620px) {
+  .deck-inner {
+    padding: 24px 16px 40px;
+  }
+
+  .deck-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 }

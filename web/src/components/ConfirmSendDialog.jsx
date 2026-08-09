@@ -17,12 +17,21 @@ import { api } from '../lib/api.js';
  * POST /send is called from the Send click and from nowhere else. This is the
  * convenient half of the gate; the binding half is server-side in routes/send.js,
  * which rejects any request without `confirmed: true`.
+ *
+ * A follow-up uses this same dialog rather than one of its own: it passes
+ * `threadId` and `inReplyTo` so the message lands in an existing Gmail thread.
+ * One dialog, one call to /send — a second confirmation UI would be a second
+ * thing to keep watertight.
  */
 export default function ConfirmSendDialog({
   to,
   recipientName,
   subject,
   body,
+  threadId,
+  inReplyTo,
+  doneLabel = 'Write another',
+  doneIcon = 'plus',
   onCancel,
   onSent,
   onWriteAnother
@@ -39,9 +48,15 @@ export default function ConfirmSendDialog({
     setBusy(true);
     try {
       // Exactly the values displayed above, plus the explicit confirmation.
-      const payload = await api.post('/send', { to, subject, body, confirmed: true });
-      setResult(payload ?? {});
-      if (typeof onSent === 'function') onSent(payload ?? {});
+      const payload = { to, subject, body, confirmed: true };
+      // Threading only — a first send carries neither, and neither changes a byte
+      // of what was just approved.
+      if (typeof threadId === 'string' && threadId !== '') payload.threadId = threadId;
+      if (typeof inReplyTo === 'string' && inReplyTo !== '') payload.inReplyTo = inReplyTo;
+
+      const sent = await api.post('/send', payload);
+      setResult(sent ?? {});
+      if (typeof onSent === 'function') onSent(sent ?? {});
     } catch (err) {
       setError(err.message);
       setErrorAction(err.action ?? null);
@@ -80,8 +95,8 @@ export default function ConfirmSendDialog({
                 if (typeof onWriteAnother === 'function') onWriteAnother();
               }}
             >
-              <Icon name="plus" />
-              Write another
+              <Icon name={doneIcon} />
+              {doneLabel}
             </button>
           </div>
         </div>

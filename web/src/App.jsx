@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import AuthPage from './pages/AuthPage.jsx';
+import CampaignBuilderPage from './pages/CampaignBuilderPage.jsx';
+import CampaignsPage from './pages/CampaignsPage.jsx';
 import ComposePage from './pages/ComposePage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
 import ThreadsPage from './pages/ThreadsPage.jsx';
@@ -15,8 +17,14 @@ import { isSupabaseConfigured, getSupabase } from './lib/supabase.js';
  */
 const PAGES = {
   '/compose': ComposePage,
-  '/threads': ThreadsPage
+  '/threads': ThreadsPage,
+  '/campaigns': CampaignsPage,
+  '/campaigns/new': CampaignBuilderPage
 };
+
+// One opened campaign. Matched here rather than in the page so the pages stay
+// free of window.location, exactly as the rest of the app is.
+const OPEN_CAMPAIGN = /^\/campaigns\/([^/]+)$/;
 
 function currentPath() {
   try {
@@ -24,6 +32,23 @@ function currentPath() {
   } catch {
     return '/';
   }
+}
+
+/** Which page renders, which tab reads as current, and which campaign is open. */
+function resolveRoute(path) {
+  if (PAGES[path]) {
+    return {
+      Page: PAGES[path],
+      // The builder is not its own section: Campaigns stays the current tab.
+      shellPath: path === '/campaigns/new' ? '/campaigns' : path,
+      campaignId: null
+    };
+  }
+
+  const opened = path.match(OPEN_CAMPAIGN);
+  if (opened) return { Page: CampaignsPage, shellPath: '/campaigns', campaignId: opened[1] };
+
+  return { Page: OnboardingPage, shellPath: '/', campaignId: null };
 }
 
 export default function App() {
@@ -89,11 +114,11 @@ export default function App() {
 
   if (!session) return <AuthPage />;
 
-  const Page = PAGES[path] ?? OnboardingPage;
+  const { Page, shellPath, campaignId } = resolveRoute(path);
 
   return (
-    <Shell email={session?.user?.email} path={PAGES[path] ? path : '/'}>
-      <Page session={session} />
+    <Shell email={session?.user?.email} path={shellPath}>
+      <Page session={session} campaignId={campaignId} />
     </Shell>
   );
 }

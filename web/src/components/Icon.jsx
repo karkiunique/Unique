@@ -51,7 +51,10 @@ const ICON_PATHS = {
   ],
   send: ['m22 2-7 20-4-9-9-4Z', 'M22 2 11 13'],
   plus: ['M5 12h14', 'M12 5v14'],
-  'corner-up-left': ['M9 14 4 9l5-5', 'M20 20v-7a4 4 0 0 0-4-4H4']
+  'corner-up-left': ['M9 14 4 9l5-5', 'M20 20v-7a4 4 0 0 0-4-4H4'],
+  'arrow-left': ['M19 12H5', 'm12 19-7-7 7-7'],
+  'rotate-cw': ['M21 12a9 9 0 1 1-3-6.7L21 8', 'M21 3v5h-5'],
+  search: ['M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16', 'm21 21-4.35-4.35']
 };
 
 export default function Icon({ name, className }) {

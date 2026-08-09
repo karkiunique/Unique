@@ -82,6 +82,24 @@ describe('findMissingSignoff', () => {
     expect(findMissingSignoff(body(unsigned), PROFILE)).toHaveLength(1);
   });
 
+  // Decisions, 2026-08-06: compose no longer appends a footer, so a footerless
+  // body is now the normal case rather than the edge one. The strip above turns
+  // into a no-op and must not change the verdict in either direction.
+  it('reads the sign-off correctly on a body with no unsubscribe footer', () => {
+    const signed = 'hey Sam\n\nworth 15?\n\nthanks,\nAna';
+    const unsigned = 'hey Sam\n\nworth 15 minutes next week?';
+
+    expect(findMissingSignoff(body(signed), PROFILE)).toEqual([]);
+    expect(findMissingSignoff(body(unsigned), PROFILE)).toHaveLength(1);
+    // Same verdict with or without the footer — the strip decides nothing.
+    expect(findMissingSignoff(body(signed), PROFILE)).toEqual(
+      findMissingSignoff(body(`${signed}${UNSUBSCRIBE}`), PROFILE)
+    );
+    expect(findMissingSignoff(body(unsigned), PROFILE)).toEqual(
+      findMissingSignoff(body(`${unsigned}${UNSUBSCRIBE}`), PROFILE)
+    );
+  });
+
   it('does not block when there is nothing to match against', () => {
     const unsigned = body('hey Sam\n\nworth 15 minutes next week?');
 

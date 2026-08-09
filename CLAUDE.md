@@ -98,9 +98,16 @@ create table campaigns (
   mode text not null check (mode in ('voice','template')),
   template_body text,                -- null in voice mode; may contain {{first_name}}, {{company}}, {{personalized}}
   subject_template text,
+  brief text,                        -- migration 004: what this campaign is actually about, in the user's words
+  clarifications jsonb,              -- migration 004: [{question, answer}] from the clarify pass. Answers may be null (skipped).
   status text default 'draft' check (status in ('draft','generating','review','sending','paused','done')),
   created_at timestamptz default now()
 );
+-- migration 004 adds `brief` and `clarifications`. Before them the generation goal fell back to the
+-- campaign NAME, so a campaign called "First test" produced six letters about running a first test.
+-- CLAUDE.md § 3 always specified "the user's campaign goal" as a prompt input; there was simply no
+-- column holding one. Both are user-authored content about their own business: treat them exactly
+-- like `template_body` — never logged, never in an error message.
 
 create table leads (
   id uuid primary key default gen_random_uuid(),
@@ -130,11 +137,24 @@ create table unsubscribes (
 create table send_log (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id),
-  lead_id uuid references leads(id),
+  lead_id uuid references leads(id),          -- null for one-off compose sends (no campaign)
+  gmail_message_id text,                      -- migration 003
+  gmail_thread_id text,                       -- migration 003
   sent_at timestamptz default now()
 );
+-- migration 003 adds gmail_message_id / gmail_thread_id so the register can show ONLY mail sent
+-- from Unique. IDs ONLY — never the subject, recipient or body. Those are fetched from Gmail on
+-- demand and never persisted. unique(user_id, gmail_message_id) keeps the write idempotent.
 -- RLS: enable on all tables; policy = user_id = auth.uid() for select/insert/update/delete.
 -- Server uses service-role key and bypasses RLS.
+--
+-- migration 002: a `profiles` row is created automatically by an AFTER INSERT trigger on
+-- auth.users. Nothing in /server creates one, so without this every new signup 404s on Gmail
+-- connect (handleCallback updates an existing row and cannot upsert — profiles.email is NOT NULL
+-- and the OAuth callback has no verified email). The trigger FAILS OPEN: if the insert cannot be
+-- made it raises a warning and still lets the signup through, because a missing profile row is
+-- recoverable by backfill whereas a throwing trigger on auth.users takes authentication down
+-- entirely. 002 also backfills any pre-existing auth.users, and is idempotent.
 ```
 
 ## API routes (server, all under /api, auth = Supabase JWT in Authorization header)
@@ -146,9 +166,13 @@ GET  /voice                  -> current voice profile
 POST /campaigns              -> create campaign {name, mode, template_body?, subject_template?}
 GET  /campaigns              -> list with counts (sent/replied)
 GET  /campaigns/:id          -> detail + leads
+POST /campaigns/:id/clarify  -> from the brief, return <=8 clarifying questions (added 2026-08-09)
+PATCH /campaigns/:id         -> edit name/template/subject, and the brief + clarification answers
 POST /campaigns/:id/leads    -> bulk add leads (CSV parsed client-side, JSON array here)
 POST /campaigns/:id/generate -> batch-generate emails for all pending leads (async, updates statuses)
+GET  /leads/:id              -> one lead's full letter for the review screen (added 2026-08-08)
 PATCH /leads/:id             -> edit body/subject, approve, etc.
+POST /leads/:id/regenerate   -> redraft one lead, leaving the rest of the campaign alone (added 2026-08-08)
 POST /campaigns/:id/send     -> queue all approved leads, set status 'sending'
 POST /campaigns/:id/pause
 GET  /dashboard              -> aggregate stats
@@ -211,7 +235,10 @@ Parse defensively (strip ```json fences). Input = rolling window of up to 100 mo
   name. Treat a missing sign-off as a guardrail violation and regenerate once.
 - **Edit-learning loop:** when a user edits a generated email on the review screen, diff generated vs edited; if the diff is stylistic (not content), append a note to `profile_json.learned_corrections[]` (e.g. "user removes exclamation marks", "user shortens greetings to just the name"). Cap at 20 corrections, FIFO. These get injected into future generation prompts.
 - Guardrails: banned phrases list (`"I hope this email finds you well"`, `"I know you're busy"`, `"quick question"` as subject, `"I'll keep this brief"`, `"delve"`, `"leverage"` unless the user's own emails use them), reject and regenerate once if hit. Length limit comes from the user's own typical_length_words, not a fixed cap.
-- Every generated body must end with an unsubscribe line: `\n\nDon't want emails from me? [Unsubscribe]({APP_URL}/u/{signedToken})`.
+- **No unsubscribe footer on 1:1 compose sends** (changed 2026-08-06 — see Decisions). The signed-token
+  route, the public page and `lib/unsubscribe.js` all stay: bulk campaign sending in Phase 4 needs
+  them, and that is where the footer belongs. It is only the automatic append on a single
+  human-confirmed email that is removed.
 
 ### 4. Sending (queue.js + sendWorker.js)
 - BullMQ queue `sends`. Job = `{leadId}`. Worker: check daily limit via send_log count for today, check unsubscribes table, build MIME message (use `nodemailer` mail-composer or raw RFC 2822 + base64url), send via `gmail.users.messages.send`, store gmail_message_id/thread_id, insert send_log, set lead `sent`.
@@ -297,6 +324,144 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-09 — The campaign brief + clarify pass; and the review deck
+
+**The problem, found by a real batch test.** Six letters were generated for a campaign named
+"First test". All six were *about running a first test* — subjects came out as "First test", one body
+ended "Just testing to make sure things are working on my end." The cause was not the voice model:
+`campaignGoal()` fell back to `campaign.name` because **no goal column existed**. § 3 had always
+listed "the user's campaign goal" as a prompt input; nothing stored one.
+
+**The brief.** `campaigns.brief` holds the user's own in-depth description of what the email is
+about, written in the campaign builder at creation. It, not the name, is the generation goal.
+
+**The clarify pass.** `POST /campaigns/:id/clarify` sends the brief to the model and returns **at most
+8** questions. They are asked **one at a time, conversationally**, each skippable — a wall of eight
+boxes reads as work and gets abandoned. Answers are stored in `campaigns.clarifications` as
+`[{question, answer}]` and feed generation alongside the brief.
+
+Questions must interrogate what a cold email actually needs and the brief did not say — who should
+reply, what the ask is, what proof exists, what makes this recipient set right. They must never ask
+for anything already in the brief, and never ask for the user's writing style: style comes from the
+voice profile, which is derived from their real sent mail, and asking would invite them to describe a
+voice rather than have it observed.
+
+**A skipped question is a first-class outcome.** Generation proceeds on the brief plus whatever was
+answered. Never block drafting on an unanswered question.
+
+**The review deck.** The review screen is a deck, not a click-in/click-out list: one letter fills the
+view, **Enter approves and advances**, arrows move without approving, `E` edits, `Esc` returns to the
+list, and any letter can be revisited at any time.
+
+This does NOT weaken the 2026-08-08 per-lead approval decision — it strengthens it. Every letter is
+rendered full-screen before it can be approved, and every approval is still one explicit action
+against one lead through `PATCH /leads/:id`. There is still no Approve All and no server change.
+
+**The known tradeoff, stated so it is not rediscovered:** Enter-to-approve makes a mistaken or
+held-down keypress able to approve a letter the user skimmed. That is accepted for the speed it buys
+on a long batch. If it proves to be a real problem, add an undo — do not add a confirm dialog on
+every letter, which would rebuild the friction the deck exists to remove.
+
+### 2026-08-08 — TWO HARD BLOCKERS ON PHASE 4 (highest priority — read before writing Phase 4 code)
+
+Both are gate-integrity requirements, not cleanups. Phase 4 is where sending becomes autonomous, and
+these are the two places where the human-approval guarantee can be silently lost.
+
+**BLOCKER 1 — every send MUST route through `selectSendableLeads`. This is the top wiring
+requirement of Phase 4.**
+`server/src/services/leadReview.js` exports `selectSendableLeads`, the server-side enforcement of
+"only `approved` leads may ever be sendable." It is fully tested and mutation-verified — three
+mutations kill it, including the full gate breach — but **it has no production caller.** The tests
+prove the function behaves; nothing yet proves the send path uses it.
+
+Building the Phase 4 queue without routing through it means **autonomous sending with the approval
+gate bypassed** — the exact failure this project has already shipped once, when a trailing-slash
+route variant sent email with no confirmation and passed a fully green 32-test suite.
+
+`POST /campaigns/:id/send` and `sendWorker.js` must select their leads through this function and
+must not re-query `leads` themselves. A test must FAIL if they stop doing so — assert on the call,
+not on the outcome, because a re-query can produce an identical result set while bypassing the gate.
+
+**BLOCKER 2 — harden the compose 80-point fidelity floor server-side when the send path is touched.**
+`web/src/components/FidelityGate.jsx` blocks a sub-80 draft from reaching the confirm step. There is
+no equivalent check in `routes/send.js` or `services/send.js`, so the floor is bypassable by a direct
+API call.
+
+This is not a violation of the § Security non-negotiable — that requires the exact-content
+*confirmation* gate to be server-side, and that gate is server-side and mutation-verified. But the
+fidelity floor itself is a UI-only gate, and this repo's history is unambiguous that UI-only gates get
+bypassed. Close it when the send path is next opened.
+
+Preserve the escape hatch when hardening: § 3 states that once the user manually edits the body the
+score goes stale and the gate lifts, because at that point the words are theirs. A server-side floor
+that ignores this would trap users behind a score the model cannot reach.
+
+### 2026-08-08 — No "Approve All" on the review screen; approval is per-lead only
+TODO.md allowed an Approve All provided it "only applies to leads the user has actually opened."
+On implementation that condition turned out to be unenforceable, so the feature was not built.
+
+**Why:** the server cannot verify that a lead was ever rendered for a human. A client-supplied list
+of "leads I opened" is exactly as forgeable as "approve everything on this campaign" — it is the
+same UI-only gate the rule exists to prevent, wearing an id array. Since this screen is the last
+place a human sees an email before it goes out under their own name, a convenience that can be
+spoofed is worse than no convenience.
+
+**What exists instead:** one `PATCH /leads/:id` with `approve: true` per lead, refused unless the
+lead is already `generated`/`approved` AND has a non-empty subject and body. The read/unread marks
+in the UI are a reading aid and are explicitly NOT the enforcement.
+
+Revisit only with a mechanism that proves human review server-side. Per-lead approval is the floor.
+
+### 2026-08-08 — Two lead routes added to the contract
+`GET /leads/:id` and `POST /leads/:id/regenerate` were added in Phase 3 Loop 4. Recorded here
+because the route list in this file is the contract.
+
+`GET /leads/:id` exists so a letter is fetched one at a time, on open. The alternative was widening
+`GET /campaigns/:id` to return every generated and edited body at once, which is strictly more
+exposure for the same screen — `campaigns.js` `LEAD_COLUMNS` deliberately excludes the body columns
+for that reason. `POST /leads/:id/regenerate` is required by the review screen's regenerate-one.
+
+### 2026-08-06 — No unsubscribe footer on 1:1 compose sends
+The auto-appended `Don't want emails from me? [Unsubscribe](...)` line is removed from the compose
+flow. On a single, human-confirmed, personally-written email it reads as machine-generated and
+undercuts the product's entire premise — that the message sounds like the user wrote it themselves.
+A footer is the clearest possible tell that it did not.
+
+**What stays:** `lib/unsubscribe.js`, the HMAC-signed token, `POST /unsubscribe/:token`, and the
+public unsubscribe page. None of that is deleted. Phase 4 bulk campaign sending is where an
+unsubscribe mechanism genuinely belongs, and it will use exactly this machinery.
+
+**The tradeoff, stated plainly so it is not rediscovered later:** for bulk commercial mail, an opt-out
+is a legal expectation in several jurisdictions and a deliverability signal everywhere. This decision
+is scoped to 1:1 sends, where reply-to-opt-out is the normal convention. **It must not be carried
+into Phase 4 batch sending** — reinstate the footer there.
+
+Incidental note: the removed link embedded a base64 payload of `{userId, recipientEmail}`. It was
+HMAC-signed and therefore unforgeable, but base64 is not encryption, so any recipient could decode
+the sender's internal user id. Worth keeping in mind when the footer returns in Phase 4 — consider an
+opaque lookup id instead of an encoded payload.
+
+### 2026-08-06 — The register stores sent IDs; this revises "reply detection stores nothing"
+The 2026-08-04 entry said reply detection persists nothing and derives everything from Gmail on read.
+That was right for what existed then. **The requirement changed:** the register must show only mail
+sent *from Unique*, and there is no way to tell a Unique-sent message from one the user wrote in
+Gmail themselves without recording what we sent. Until now the screen listed the user's entire
+`in:sent`, personal mail included — which was both wrong product behaviour and more exposure than
+intended.
+
+Rejected alternatives: a Gmail label needs `gmail.modify`, still deliberately unrequested; a custom
+MIME header is unusable because Gmail search cannot query arbitrary headers.
+
+**Migration 003 stores IDs and nothing else** — `gmail_message_id` and `gmail_thread_id` on
+`send_log`. No subject, no recipient, no body, ever. Subject, recipient and reply state are fetched
+from Gmail per request and remain in memory only, exactly as before. The persistence posture widens
+by two opaque identifiers, which is the minimum that makes "only ours" expressible.
+
+Thread bodies ARE returned to the user for the detail view and the follow-up flow. This is not the
+dev corpus route: it is one thread the user sent, fetched on demand, shown to the person who wrote
+it, never persisted and never logged. The dev gate exists to stop bulk-dumping an ingestion corpus,
+not to stop a user reading their own conversation.
 
 ### 2026-08-05 — Recipient verification: MX + role/disposable only; bounce detection is the real signal
 **MX lookup plus role/disposable flagging is cheap front-line prevention, and nothing more.** It runs
