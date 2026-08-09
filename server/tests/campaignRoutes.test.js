@@ -72,9 +72,15 @@ vi.mock('../src/services/leads.js', async (importOriginal) => {
   return { ...actual, addLeads: add };
 });
 
+// The last three are the single-lead regenerate path's seam into the batch. They
+// are unused by these routes, but the module is mocked whole, so the mock has to
+// export everything leadRegenerate.js imports from it.
 vi.mock('../src/services/generateBatch.js', () => ({
   beginCampaignGeneration: begin,
-  runCampaignGeneration: run
+  runCampaignGeneration: run,
+  draftForLead: vi.fn(),
+  campaignGoal: vi.fn(),
+  missingMergeVarsFor: vi.fn(() => [])
 }));
 
 const { createApp } = await import('../src/app.js');

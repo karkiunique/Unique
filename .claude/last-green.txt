@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
 # Updated: 2026-08-08 | Node v20.20.2 | branch feat/phase-3
-# Totals: server=500, web=199, combined=699
+# Totals: server=584, web=226, combined=810
 
-### SERVER (/server, vitest, 500 tests) ###
+### SERVER (/server, vitest, 584 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -123,6 +123,31 @@ tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENA
 tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s for ENABLE_DEV_ROUTES='yes' (exact 'true' match only)
 tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s in production even when ENABLE_DEV_ROUTES is true
 tests/devInspect.test.js > GET /api/dev/ingest-preview — gating > 404s when ENABLE_DEV_ROUTES is unset
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns both marks when both went in one edit
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns from a one-paragraph letter with no greeting line
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns lower case only when nothing but the case changed
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns that the user shortens the greeting to just the name
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns that the user takes out ellipses
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns that the user takes out exclamation marks
+tests/editLearning.test.js > classifyEdit — what counts as stylistic > learns that the user takes out semicolons
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing from a partial removal — one mark left is not a habit
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing from a rewritten sentence
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing from an empty, missing or unchanged body
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing from an unrecognised punctuation change
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when a sentence is cut, even though the marks went with it
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when a swapped word takes the ellipsis with it
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when a swapped word takes the exclamation mark with it
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when a swapped word takes the semicolon with it
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when a word is added
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when the greeting is rewritten rather than shortened
+tests/editLearning.test.js > classifyEdit — what must never be learned > learns nothing when the sign-off changes
+tests/editLearning.test.js > recordEditCorrections > appends the note to the profile it belongs to
+tests/editLearning.test.js > recordEditCorrections > caps at twenty, dropping the oldest first
+tests/editLearning.test.js > recordEditCorrections > does not repeat a note it has already learned
+tests/editLearning.test.js > recordEditCorrections > does nothing when the user has no voice profile yet
+tests/editLearning.test.js > recordEditCorrections > logs a count only — never the letter or the note
+tests/editLearning.test.js > recordEditCorrections > reads and writes only this user's profile
+tests/editLearning.test.js > recordEditCorrections > writes nothing for a content edit
 tests/generate.test.js > findBannedPhrases > allows "leverage" and "delve" when the user writes them themselves
 tests/generate.test.js > findBannedPhrases > bans "quick question" as a subject but not inside the body
 tests/generate.test.js > findBannedPhrases > flags every banned phrase in the subject or body
@@ -250,6 +275,65 @@ tests/httpError.test.js > safeMessage > hides messages from plain errors
 tests/httpError.test.js > safeMessage > hides messages on 5xx even when they are ours
 tests/httpError.test.js > safeMessage > hides third-party SDK messages that happen to carry a status
 tests/httpError.test.js > safeMessage > returns our own 4xx messages
+tests/leadRegenerate.test.js > regenerateLead > 404s on another user's lead, and never calls the model
+tests/leadRegenerate.test.js > regenerateLead > 404s when the campaign belongs to somebody else
+tests/leadRegenerate.test.js > regenerateLead > carries user_id on the write itself, not just the two ownership checks
+tests/leadRegenerate.test.js > regenerateLead > changes nothing when the model call fails
+tests/leadRegenerate.test.js > regenerateLead > filters the lead read on user_id, not just the campaign lookup behind it
+tests/leadRegenerate.test.js > regenerateLead > leaves every other lead on the campaign untouched
+tests/leadRegenerate.test.js > regenerateLead > logs ids and the score only — never a letter or a recipient
+tests/leadRegenerate.test.js > regenerateLead > redrafts a lead the batch could not write, and one never drafted for
+tests/leadRegenerate.test.js > regenerateLead > refuses a lead missing a merge variable, naming the variable and not the value
+tests/leadRegenerate.test.js > regenerateLead > refuses to redraft a letter that has gone out or is on its way
+tests/leadRegenerate.test.js > regenerateLead > reuses the batch's drafting, with this user's voice and campaign
+tests/leadRegenerate.test.js > regenerateLead > stores the new letter and sends the lead back for approval
+tests/leadReview.test.js > editing a letter > 400s when the patch carries nothing editable
+tests/leadReview.test.js > editing a letter > approves the edited words when both arrive together
+tests/leadReview.test.js > editing a letter > does not run the learning loop for a subject-only edit
+tests/leadReview.test.js > editing a letter > keeps the edit when the learning loop falls over
+tests/leadReview.test.js > editing a letter > offers a body edit to the edit-learning loop, against the original draft
+tests/leadReview.test.js > editing a letter > refuses to edit a letter that has already gone out
+tests/leadReview.test.js > editing a letter > rejects an empty subject, an empty body and an over-long body
+tests/leadReview.test.js > editing a letter > stores the edit in edited_body and leaves the draft intact
+tests/leadReview.test.js > editing a letter > stores the subject exactly as sent, byte for byte
+tests/leadReview.test.js > editing a letter > withdraws approval when the words change after it
+tests/leadReview.test.js > getLead > 404s on an unknown lead id
+tests/leadReview.test.js > getLead > 404s on another user's lead, and filters the read on user_id
+tests/leadReview.test.js > getLead > returns the letter to its owner
+tests/leadReview.test.js > review logging > logs ids only — never a letter, a name, an employer or an address
+tests/leadReview.test.js > the approval gate > 404s on another user's lead and writes nothing
+tests/leadReview.test.js > the approval gate > approves only on an explicit per-lead approval
+tests/leadReview.test.js > the approval gate > cannot be approved by a status in the patch body
+tests/leadReview.test.js > the approval gate > carries user_id on the write itself, not just the ownership check
+tests/leadReview.test.js > the approval gate > does not approve a lead that was only edited
+tests/leadReview.test.js > the approval gate > leaves an approved lead approved when it is approved again
+tests/leadReview.test.js > the approval gate > refuses to approve a lead that has never been drafted for
+tests/leadReview.test.js > the approval gate > refuses to approve a lead with no letter to send
+tests/leadReview.test.js > the approval gate > refuses to approve from any status that is not a live draft
+tests/leadReview.test.js > the approval gate > rejects an approve flag that is not a boolean
+tests/leadRoutes.test.js > GET /api/leads/:id > 400s on an id that is not a lead id, without touching the service
+tests/leadRoutes.test.js > GET /api/leads/:id > 404s when the lead is not the caller's
+tests/leadRoutes.test.js > GET /api/leads/:id > returns the letter for the authenticated user
+tests/leadRoutes.test.js > PATCH /api/leads/:id > 400s on an id that is not a lead id
+tests/leadRoutes.test.js > PATCH /api/leads/:id > 404s when the lead is not the caller's, without approving anything
+tests/leadRoutes.test.js > PATCH /api/leads/:id > forwards only the editable fields and the approval flag
+tests/leadRoutes.test.js > PATCH /api/leads/:id > is the owner from the token, never a user_id in the body
+tests/leadRoutes.test.js > PATCH /api/leads/:id > surfaces the service status for an illegal transition
+tests/leadRoutes.test.js > POST /api/leads/:id/regenerate > 404s when the lead is not the caller's
+tests/leadRoutes.test.js > POST /api/leads/:id/regenerate > does not echo a model error back to the caller
+tests/leadRoutes.test.js > POST /api/leads/:id/regenerate > redrafts this one lead for the authenticated user
+tests/leadRoutes.test.js > lead route logging > logs ids and statuses only — never a letter or a recipient
+tests/leadRoutes.test.js > lead routes — authentication > 401s on every lead route without a token, and reaches no service
+tests/leadRoutes.test.js > lead routes — authentication > 401s on the trailing-slash variant of the approval route too
+tests/leadRoutes.test.js > lead routes — authentication > approves for the authenticated user on the trailing-slash variant as well
+tests/leadSendGate.test.js > outgoingLetter > prefers the edit over the draft, and falls back when there is none
+tests/leadSendGate.test.js > selectSendableLeads > asks the database for approved leads and re-checks the status it got back
+tests/leadSendGate.test.js > selectSendableLeads > drops a row the query returned that is not approved after all
+tests/leadSendGate.test.js > selectSendableLeads > logs ids and a count only — never a letter or a recipient
+tests/leadSendGate.test.js > selectSendableLeads > returns approved leads only
+tests/leadSendGate.test.js > selectSendableLeads > returns nothing for another user's campaign, and filters on user_id
+tests/leadSendGate.test.js > selectSendableLeads > sends the edited words, not the model's
+tests/leadSendGate.test.js > selectSendableLeads > skips an approved lead whose letter is empty
 tests/leads.test.js > addLeads — address verification is advisory > carries a DNS timeout through as 'unknown', never as invalid
 tests/leads.test.js > addLeads — address verification is advisory > does not let the representative address lend its role flag to its neighbours
 tests/leads.test.js > addLeads — address verification is advisory > flags a domain with no mail server but still inserts it
@@ -504,7 +588,7 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest, 199 tests) ###
+### WEB (/web, vitest, 226 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
 tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
 tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
@@ -524,6 +608,14 @@ tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > posts 
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — submitting > renders the server message when the create fails, and stays put
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts a merge var at the cursor
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — the merge bar > inserts in the middle of the template, not at the end
+tests/CampaignGenerate.test.jsx > CampaignGenerate > never offers to draft while the campaign is sending
+tests/CampaignGenerate.test.jsx > CampaignGenerate > offers to draft the recipients still waiting
+tests/CampaignGenerate.test.jsx > CampaignGenerate > renders nothing at all before there are recipients
+tests/CampaignGenerate.test.jsx > CampaignGenerate > says so when every recipient already has a draft
+tests/CampaignGenerate.test.jsx > CampaignGenerate > shows progress instead of the button while a run is under way
+tests/CampaignGenerate.test.jsx > CampaignGenerate > shows the server's refusal
+tests/CampaignGenerate.test.jsx > CampaignGenerate > starts the run and tells the page to re-read it
+tests/CampaignGenerate.test.jsx > CampaignGenerate > states plainly that drafting is not sending
 tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — bounce risk is advisory > flags a dead domain without blocking anything, and adds it anyway
 tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — bounce risk is advisory > reads a lookup that did not finish as unchecked, not as a bad address
 tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — column mapping > needs no manual mapping for a well-formed file
@@ -537,6 +629,12 @@ tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > sends a lon
 tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > shows what was added, what was skipped and what was rejected
 tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > tells the campaign to reload once the recipients are in
 tests/CampaignLeadsPage.test.jsx > CampaignLeadsPage — uploading > tells the user when the server refused the upload
+tests/CampaignReview.test.jsx > generation progress polling > does not poll a campaign that is not generating
+tests/CampaignReview.test.jsx > generation progress polling > re-reads a run that is under way
+tests/CampaignReview.test.jsx > the campaign review list > fetches that one letter when its row is opened
+tests/CampaignReview.test.jsx > the campaign review list > lists the recipients without fetching a single letter
+tests/CampaignReview.test.jsx > the campaign review list > marks a low-fidelity draft in the list, before it is even opened
+tests/CampaignReview.test.jsx > the campaign review list > marks every letter unread until it has actually been opened
 tests/CampaignsPage.test.jsx > CampaignsPage > loads the campaigns on mount
 tests/CampaignsPage.test.jsx > CampaignsPage > marks each campaign with its mode
 tests/CampaignsPage.test.jsx > CampaignsPage > navigates to a campaign when its row is clicked
@@ -619,6 +717,19 @@ tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags an emai
 tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags an email where no quoted reply was stripped
 tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags undecoded quoted-printable markers
 tests/CorpusViewer.test.jsx > CorpusViewer — visibility > renders nothing at all when the dev route 404s
+tests/LeadReview.test.jsx > LeadReview > approves the edited words in the same request that approves them
+tests/LeadReview.test.jsx > LeadReview > approves this lead, by id, and nothing else
+tests/LeadReview.test.jsx > LeadReview > does not flag a draft that scored at or above 80
+tests/LeadReview.test.jsx > LeadReview > fetches this one letter and shows it
+tests/LeadReview.test.jsx > LeadReview > flags a draft under 80 as one to read closely
+tests/LeadReview.test.jsx > LeadReview > offers no approval for a letter that has already gone out
+tests/LeadReview.test.jsx > LeadReview > offers no approval for a recipient that has never been drafted for
+tests/LeadReview.test.jsx > LeadReview > reads a lead that is not theirs as absent, not as a fault
+tests/LeadReview.test.jsx > LeadReview > redrafts just this lead
+tests/LeadReview.test.jsx > LeadReview > saves an edit without approving anything
+tests/LeadReview.test.jsx > LeadReview > says so once the letter is approved
+tests/LeadReview.test.jsx > LeadReview > shows the edit rather than the draft when the user has already edited
+tests/LeadReview.test.jsx > LeadReview > shows the server's refusal rather than pretending the approval worked
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > disables the build button while the request is in flight
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > posts /voice/generate and shows the building state on click
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > renders no email bodies in the ingest stage when the dev preview is absent

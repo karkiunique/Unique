@@ -169,8 +169,12 @@ async function markLeadFailed(userId, leadId) {
  * — the schema in CLAUDE.md is the contract and is not changed here — so a
  * caller may pass one per run, and otherwise it is the user's own words about
  * this campaign: its name, plus the subject line they chose.
+ *
+ * Exported for leadRegenerate.js: redrafting one lead from the review screen has
+ * to produce the same letter this batch would, so it shares the machinery rather
+ * than growing a second copy that can drift.
  */
-function campaignGoal(campaign, requested) {
+export function campaignGoal(campaign, requested) {
   const asked = trimmed(requested);
   if (asked !== '') return asked;
 
@@ -198,7 +202,8 @@ function mergeTargets(campaign) {
     : [campaign.subject_template];
 }
 
-function missingMergeVarsFor(campaign, lead) {
+/** Exported for leadRegenerate.js — see campaignGoal() above. */
+export function missingMergeVarsFor(campaign, lead) {
   const missing = new Set();
 
   for (const target of mergeTargets(campaign)) {
@@ -208,8 +213,14 @@ function missingMergeVarsFor(campaign, lead) {
   return [...missing];
 }
 
-/** One lead, drafted but not yet persisted. Throws on a model or template failure. */
-async function draftForLead(run, lead) {
+/**
+ * One lead, drafted but not yet persisted. Throws on a model or template failure.
+ *
+ * Exported for leadRegenerate.js — see campaignGoal() above. Persistence is
+ * deliberately NOT part of it: the batch flags a failed lead, while a redraft
+ * from the review screen leaves the existing letter alone.
+ */
+export async function draftForLead(run, lead) {
   const shared = {
     profileJson: run.voice.profileJson,
     exemplars: run.voice.exemplars,

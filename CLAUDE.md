@@ -161,7 +161,9 @@ GET  /campaigns              -> list with counts (sent/replied)
 GET  /campaigns/:id          -> detail + leads
 POST /campaigns/:id/leads    -> bulk add leads (CSV parsed client-side, JSON array here)
 POST /campaigns/:id/generate -> batch-generate emails for all pending leads (async, updates statuses)
+GET  /leads/:id              -> one lead's full letter for the review screen (added 2026-08-08)
 PATCH /leads/:id             -> edit body/subject, approve, etc.
+POST /leads/:id/regenerate   -> redraft one lead, leaving the rest of the campaign alone (added 2026-08-08)
 POST /campaigns/:id/send     -> queue all approved leads, set status 'sending'
 POST /campaigns/:id/pause
 GET  /dashboard              -> aggregate stats
@@ -313,6 +315,31 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-08 — No "Approve All" on the review screen; approval is per-lead only
+TODO.md allowed an Approve All provided it "only applies to leads the user has actually opened."
+On implementation that condition turned out to be unenforceable, so the feature was not built.
+
+**Why:** the server cannot verify that a lead was ever rendered for a human. A client-supplied list
+of "leads I opened" is exactly as forgeable as "approve everything on this campaign" — it is the
+same UI-only gate the rule exists to prevent, wearing an id array. Since this screen is the last
+place a human sees an email before it goes out under their own name, a convenience that can be
+spoofed is worse than no convenience.
+
+**What exists instead:** one `PATCH /leads/:id` with `approve: true` per lead, refused unless the
+lead is already `generated`/`approved` AND has a non-empty subject and body. The read/unread marks
+in the UI are a reading aid and are explicitly NOT the enforcement.
+
+Revisit only with a mechanism that proves human review server-side. Per-lead approval is the floor.
+
+### 2026-08-08 — Two lead routes added to the contract
+`GET /leads/:id` and `POST /leads/:id/regenerate` were added in Phase 3 Loop 4. Recorded here
+because the route list in this file is the contract.
+
+`GET /leads/:id` exists so a letter is fetched one at a time, on open. The alternative was widening
+`GET /campaigns/:id` to return every generated and edited body at once, which is strictly more
+exposure for the same screen — `campaigns.js` `LEAD_COLUMNS` deliberately excludes the body columns
+for that reason. `POST /leads/:id/regenerate` is required by the review screen's regenerate-one.
 
 ### 2026-08-06 — No unsubscribe footer on 1:1 compose sends
 The auto-appended `Don't want emails from me? [Unsubscribe](...)` line is removed from the compose
