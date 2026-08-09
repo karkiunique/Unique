@@ -2288,3 +2288,107 @@ a {
   border-top: 1px solid var(--rule);
   padding-top: 16px;
 }
+
+/* ---- the review deck: one letter at a time, dealt like cards ----
+   Forty letters through a click-in/click-out list is unbearable (CLAUDE.md,
+   2026-08-09), so the open letter takes the whole view. The list stays mounted
+   underneath, which is what lets Esc put the reviewer back where they were. */
+.deck {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-y: auto;
+  background: var(--paper);
+  background-image: radial-gradient(rgba(33, 28, 19, 0.022) 1px, transparent 1px);
+  background-size: 4px 4px;
+  outline: none;
+}
+
+.deck-inner {
+  max-width: 74ch;
+  margin: 0 auto;
+  padding: 40px 24px 56px;
+}
+
+.deck-head {
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+}
+
+.deck-marks {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+
+.deck-position,
+.deck-approved {
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* How many are done is the number the reviewer is working towards, so it is the
+   one that carries ink. */
+.deck-approved {
+  color: var(--red);
+}
+
+.deck-tag {
+  margin-left: 12px;
+}
+
+.deck-done {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+}
+
+.deck-done-line {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 20px;
+}
+
+/* The shortcuts stay on screen: a keyboard flow nobody can see is a keyboard
+   flow nobody uses. */
+.deck-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.deck-legend kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper-lift);
+  padding: 2px 6px;
+  margin-right: 4px;
+}
+
+@media (max-width: 620px) {
+  .deck-inner {
+    padding: 24px 16px 40px;
+  }
+
+  .deck-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

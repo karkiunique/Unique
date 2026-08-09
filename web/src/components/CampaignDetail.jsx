@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import CampaignGenerate from './CampaignGenerate.jsx';
 import Icon from './Icon.jsx';
-import LeadReview from './LeadReview.jsx';
+import ReviewDeck from './ReviewDeck.jsx';
 import { PageHead } from './Shell.jsx';
 import CampaignLeadsPage from '../pages/CampaignLeadsPage.jsx';
 import { api } from '../lib/api.js';
+import { fullName, isLowFidelity } from '../lib/letter.js';
 import { navigateTo } from '../lib/navigate.js';
 
 /**
@@ -13,7 +14,7 @@ import { navigateTo } from '../lib/navigate.js';
  * for whichever letter is open.
  *
  * The list carries names, addresses and statuses — never a letter. A body is
- * fetched only when a recipient is actually opened, one at a time, by LeadReview.
+ * fetched only when a recipient is actually opened, one at a time, by the deck.
  *
  * WHICH LETTERS HAVE BEEN READ IS SHOWN, because approval is per-letter and a
  * reviewer working down a list needs to see where they got to. It is a reading
@@ -26,7 +27,6 @@ import { navigateTo } from '../lib/navigate.js';
 
 const NOT_FOUND = 404;
 const MODE_LABELS = { voice: 'Voice', template: 'Template' };
-const LOW_FIDELITY = 80;
 
 /** How often a run under way is re-read. Polling stops when it leaves 'generating'. */
 const POLL_MS = 2500;
@@ -42,12 +42,6 @@ function modeLabel(mode) {
   return typeof label === 'string' ? label : '';
 }
 
-function fullName(lead) {
-  return [lead?.first_name, lead?.last_name]
-    .filter((part) => typeof part === 'string' && part.trim() !== '')
-    .join(' ');
-}
-
 /**
  * One recipient's line. A button, like the register's rows: the whole line opens
  * the letter, so the hit target is the line the eye is already on.
@@ -57,8 +51,7 @@ function fullName(lead) {
  */
 function LeadRow({ lead, position, read, onOpen }) {
   const status = typeof lead?.status === 'string' ? lead.status : 'pending';
-  const score = typeof lead?.fidelity_score === 'number' ? lead.fidelity_score : null;
-  const lowFidelity = score !== null && score < LOW_FIDELITY;
+  const lowFidelity = isLowFidelity(lead);
 
   return (
     <button type="button" className="reg-row" onClick={() => onOpen(lead?.id)}>
@@ -107,11 +100,16 @@ export default function CampaignDetail({ campaignId }) {
     setReloadToken((token) => token + 1);
   }
 
+  // Stable, because the deck reports every letter it shows through it.
+  const markRead = useCallback((leadId) => {
+    setReadLeadIds((current) => (current.has(leadId) ? current : new Set(current).add(leadId)));
+  }, []);
+
   function openLead(leadId) {
     if (typeof leadId !== 'string' || leadId === '') return;
 
     setOpenLeadId(leadId);
-    setReadLeadIds((current) => new Set(current).add(leadId));
+    markRead(leadId);
   }
 
   useEffect(() => {
@@ -230,9 +228,11 @@ export default function CampaignDetail({ campaignId }) {
       </div>
 
       {openLeadId ? (
-        <LeadReview
+        <ReviewDeck
           key={openLeadId}
-          leadId={openLeadId}
+          leads={leads}
+          startLeadId={openLeadId}
+          onShown={markRead}
           onClose={() => setOpenLeadId(null)}
           onChanged={reload}
         />

@@ -41,6 +41,7 @@ const testGlobals = {
   HTMLElement: 'readonly',
   HTMLTextAreaElement: 'readonly',
   Event: 'readonly',
+  KeyboardEvent: 'readonly',
   // CSV upload tests hand the page a real File built from bytes.
   File: 'readonly',
   Blob: 'readonly'

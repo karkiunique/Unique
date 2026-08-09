@@ -1,6 +1,6 @@
 # VoiceReach last-green test baseline
 # Updated: 2026-08-09 | Node v20.20.2 | branch feat/phase-3
-# Totals: server=634, web=241, combined=875
+# Totals: server=634, web=255, combined=889
 
 ### SERVER (/server, vitest, 634 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
@@ -638,7 +638,7 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest, 241 tests) ###
+### WEB (/web, vitest, 255 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
 tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
 tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
@@ -778,19 +778,6 @@ tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags an emai
 tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags an email where no quoted reply was stripped
 tests/CorpusViewer.test.jsx > CorpusViewer — suspect detection > flags undecoded quoted-printable markers
 tests/CorpusViewer.test.jsx > CorpusViewer — visibility > renders nothing at all when the dev route 404s
-tests/LeadReview.test.jsx > LeadReview > approves the edited words in the same request that approves them
-tests/LeadReview.test.jsx > LeadReview > approves this lead, by id, and nothing else
-tests/LeadReview.test.jsx > LeadReview > does not flag a draft that scored at or above 80
-tests/LeadReview.test.jsx > LeadReview > fetches this one letter and shows it
-tests/LeadReview.test.jsx > LeadReview > flags a draft under 80 as one to read closely
-tests/LeadReview.test.jsx > LeadReview > offers no approval for a letter that has already gone out
-tests/LeadReview.test.jsx > LeadReview > offers no approval for a recipient that has never been drafted for
-tests/LeadReview.test.jsx > LeadReview > reads a lead that is not theirs as absent, not as a fault
-tests/LeadReview.test.jsx > LeadReview > redrafts just this lead
-tests/LeadReview.test.jsx > LeadReview > saves an edit without approving anything
-tests/LeadReview.test.jsx > LeadReview > says so once the letter is approved
-tests/LeadReview.test.jsx > LeadReview > shows the edit rather than the draft when the user has already edited
-tests/LeadReview.test.jsx > LeadReview > shows the server's refusal rather than pretending the approval worked
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > disables the build button while the request is in flight
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > posts /voice/generate and shows the building state on click
 tests/OnboardingPage.test.jsx > OnboardingPage — connected > renders no email bodies in the ingest stage when the dev preview is absent
@@ -805,6 +792,33 @@ tests/OnboardingPage.test.jsx > OnboardingPage — ready > does not crash on a m
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders a null profile_json without crashing
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the dossier including never_does entries
 tests/OnboardingPage.test.jsx > OnboardingPage — ready > renders the verbatim clipping lists, the pull-quote and emoji usage
+tests/ReviewDeck.test.jsx > opening the deck from the campaign list > opens at the row that was clicked
+tests/ReviewDeck.test.jsx > the review deck > approves each letter as it is reached, never the one before it
+tests/ReviewDeck.test.jsx > the review deck > approves nothing for a letter whose words are not the ones on screen
+tests/ReviewDeck.test.jsx > the review deck > approves nothing that has not been displayed
+tests/ReviewDeck.test.jsx > the review deck > approves nothing when Enter is pressed inside the subject
+tests/ReviewDeck.test.jsx > the review deck > approves nothing when the keystroke was aimed outside the deck
+tests/ReviewDeck.test.jsx > the review deck > approves the letter on screen — by id — and advances
+tests/ReviewDeck.test.jsx > the review deck > approves the unsaved edit in the same request that approves the letter
+tests/ReviewDeck.test.jsx > the review deck > does not flag a letter that scored at or above 80
+tests/ReviewDeck.test.jsx > the review deck > flags a letter under 80 as one to read closely
+tests/ReviewDeck.test.jsx > the review deck > leaves the field before it leaves the deck
+tests/ReviewDeck.test.jsx > the review deck > lets an approved letter be approved again without erroring
+tests/ReviewDeck.test.jsx > the review deck > moves on the arrows without approving anything
+tests/ReviewDeck.test.jsx > the review deck > names itself and keeps the shortcuts on screen
+tests/ReviewDeck.test.jsx > the review deck > offers no approval for a letter that has already gone out
+tests/ReviewDeck.test.jsx > the review deck > offers no approval for a recipient that has never been drafted for
+tests/ReviewDeck.test.jsx > the review deck > opens at the letter that was asked for, and fetches only that one
+tests/ReviewDeck.test.jsx > the review deck > reads a letter that is not theirs as absent, not as a fault
+tests/ReviewDeck.test.jsx > the review deck > redrafts just this letter, and approves nothing by doing it
+tests/ReviewDeck.test.jsx > the review deck > returns to the list on Esc
+tests/ReviewDeck.test.jsx > the review deck > runs the approved count as letters are approved
+tests/ReviewDeck.test.jsx > the review deck > says when the last letter is done and offers the way back
+tests/ReviewDeck.test.jsx > the review deck > shows an approved letter as approved when it is revisited
+tests/ReviewDeck.test.jsx > the review deck > shows the edit rather than the draft when the letter has already been edited
+tests/ReviewDeck.test.jsx > the review deck > stays on the letter, and says why, when the server refuses the approval
+tests/ReviewDeck.test.jsx > the review deck > stores an edit as edited_body, and shows the edit rather than the draft
+tests/ReviewDeck.test.jsx > the review deck > types a newline when Enter is pressed inside the body, and approves nothing
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > does NOT call /send when the dialog opens — only the approve click sends
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > opens ConfirmSendDialog, not a confirmation of its own
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > prefills the recipient from whoever spoke last in the thread
