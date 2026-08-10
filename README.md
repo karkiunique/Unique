@@ -22,9 +22,32 @@ CLAUDE.md contract: stack, schema, routes, security rules
    `service_role` secret key.
    - `service_role` goes in `server/.env` only. It bypasses RLS and must never reach the browser.
    - `anon` goes in `web/.env`.
-3. **SQL Editor -> New query**: paste the contents of `supabase/migrations/001_init.sql`
-   and run it. This creates the tables, enables row level security on every table, and adds
-   `user_id = auth.uid()` policies (`id = auth.uid()` for `profiles`).
+3. **SQL Editor -> New query**: run **every** file in `supabase/migrations/`, in order. All of
+   them are required and every one is idempotent, so re-running a file is safe if you are unsure
+   whether it was applied.
+   - `001_init.sql` — tables, row level security on every table, and `user_id = auth.uid()`
+     policies (`id = auth.uid()` for `profiles`).
+   - `002_profiles_autocreate.sql` — the trigger that creates a `profiles` row on signup. Without
+     it **every new signup 404s on Gmail connect**, because nothing in `/server` creates that row.
+   - `003_send_log_gmail_ids.sql` — the Gmail id columns the register reads. Without it the
+     register stays empty.
+   - `004_campaign_brief.sql` — `brief` and `clarifications` on `campaigns`. Without it campaigns
+     error, and generation falls back to using the campaign *name* as the goal.
+
+   Skipping any of these fails at runtime, not at startup, and the tests will not warn you —
+   they mock Supabase. To check what actually landed:
+
+   ```sql
+   -- expect: brief, clarifications, gmail_message_id, gmail_thread_id
+   select table_name, column_name from information_schema.columns
+   where table_schema = 'public'
+     and column_name in ('brief','clarifications','gmail_message_id','gmail_thread_id')
+   order by table_name, column_name;
+
+   -- expect one row: the signup trigger from 002
+   select tgname from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
 4. **Authentication -> Providers**: enable Email. For local development you can turn off
    "Confirm email" so signup logs you straight in.
 5. **Authentication -> URL Configuration**: set Site URL to `http://localhost:5173`.
@@ -67,6 +90,10 @@ Generate the two secrets:
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"  # TOKEN_ENC_KEY
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"     # UNSUB_SECRET
 ```
+
+**You do not need Redis yet.** `.env.example` carries `REDIS_URL` because Phase 4's send queue will
+use it, but nothing in `/server` touches Redis today — batch generation runs on `p-limit`. Leave the
+default value and move on.
 
 Smoke test: `curl http://localhost:3000/api/health` returns `{"status":"ok",...}`. Then sign up in
 the web app — the landing view calls `GET /api/me` with your Supabase JWT and shows your user id.
