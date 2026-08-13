@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-12 | Node v20.20.2 | branch fix/voice-not-typos
-# Totals: server=677, web=255, combined=932
+# Updated: 2026-08-13 | Node v20.20.2 | branch fix/voice-not-typos
+# Totals: server=701, web=255, combined=956
 
-### SERVER (/server, vitest, 677 tests) ###
+### SERVER (/server, vitest, 701 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -560,6 +560,30 @@ tests/signoff.test.js > findMissingSignoff > reads the sign-off correctly on a b
 tests/signoff.test.js > signoffStyles > drops blanks but keeps the usable entries
 tests/signoff.test.js > signoffStyles > returns the user's own closings
 tests/signoff.test.js > signoffStyles > survives a missing, empty or malformed list without throwing
+tests/sparseProfile.test.js > a thin profile degrades to unknown, never to a made-up value > records a brand-new user's variant as unknown, not as generation zero
+tests/sparseProfile.test.js > a thin profile degrades to unknown, never to a made-up value > reports an unknown length band and version rather than guessing either
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > names no openings to a user who has none, while still varying their asks
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > never prints a heading with an empty list under it, for any thin profile
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > offers a new user with a profile whose every field is null no opening list at all, not an empty one
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > offers a new user with a profile whose fields are the wrong type no opening list at all, not an empty one
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > offers a new user with an empty profile (a brand-new user) no opening list at all, not an empty one
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > reuses the single opening a new user has rather than inventing five more
+tests/sparseProfile.test.js > a thin profile never blocks a new user on a check we cannot make > accepts a properly signed draft for every thin profile
+tests/sparseProfile.test.js > a thin profile never blocks a new user on a check we cannot make > raises no sign-off violation when the profile names no sign-off
+tests/sparseProfile.test.js > a thin profile still gets the spelling carve-out and honest exemplar wording > carries the carve-out into every prompt for every thin profile
+tests/sparseProfile.test.js > a thin profile still gets the spelling carve-out and honest exemplar wording > does not claim to include example emails when the user has none
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile whose every field is null
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile whose fields are the wrong type
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile with exactly one sentence starter
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile with no sentence_starters
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with an empty profile (a brand-new user)
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes usable prompts when the caller passes no profile at all
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > generates every lead in the batch, and fails none of them
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > sends no variety block at all rather than an empty list of choices
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > still carries the spelling carve-out to the model
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > stores a variant of nulls, not of zeros and empty strings
+tests/sparseProfileBatch.test.js > a user who deleted their exemplars > generates the batch and never claims to have example emails it does not have
+tests/sparseProfileBatch.test.js > a user whose profile names exactly one opening > offers only that opening to all six leads, and invents no others
 tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > carries the same carve-out into template-mode personalization
 tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > holds the line when the stored profile catalogues the errors as traits
 tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > still says nothing about typos when there are no exemplars to warn about
