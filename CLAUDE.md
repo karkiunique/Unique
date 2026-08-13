@@ -120,6 +120,10 @@ create table leads (
   generated_body text,
   edited_body text,                  -- user's manual edit wins over generated
   fidelity_score int,                -- 0-100 from the generation fidelity check; <80 flags "low fidelity" in review UI
+  variant_json jsonb,                -- migration 005: WHICH variant this letter used. Written at
+                                     -- generation, read by nothing until the adaptation loop exists.
+                                     -- {opener_starter, cta_form, length_band, profile_version}.
+                                     -- References the user's OWN profile entries — no new content class.
   status text default 'pending' check (status in ('pending','generated','approved','queued','sent','replied','bounced','unsubscribed','failed')),
   sent_at timestamptz, replied_at timestamptz,
   gmail_message_id text, gmail_thread_id text,
@@ -330,6 +334,54 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-12 — Batch variety, and the outcome-adaptation loop it feeds
+
+**Two features, one now and one after Phase 4. The first must not ship without the second's
+groundwork, because that groundwork cannot be added retroactively.**
+
+**NOW — batch variety.** Nothing in a generation prompt knows what the other letters in the batch
+said. A measured batch opened 4 of 6 letters with the same sentence and shared five phrases across
+all six. Each prompt must receive the openers and CTA forms already used in this run and pick a
+different construction — **drawn from the user's own `sentence_starters` and `how_they_ask`, never
+invented.** Variety within their voice, not variety away from it.
+
+**NOW — variant tagging (`leads.variant_json`, migration 005).** Record which variant each letter
+used: `{opener_starter, cta_form, length_band, profile_version}`. **Nothing reads it yet.** It exists
+because every letter sent before the adaptation loop is otherwise a lost data point — reconstructing
+which pattern a body used by parsing it after the fact is lossy and cannot recover a distinction the
+generator made but never wrote down. `profile_version` is included because variant performance is not
+comparable across a re-synced profile.
+
+This stores references to the user's own profile entries, not new content. `generated_body` is
+already in this table, so it is not a new exposure class.
+
+**AFTER PHASE 4 — the adaptation loop.** Reply outcomes bias future variant selection: what lands
+gets reused more. Blocked until `replyWatcher` exists, because nothing currently writes `replied`.
+
+**The statistics are hostile and the design must answer them.** Cold reply rates run ~1–5%;
+separating a 3% variant from a 5% one takes hundreds of sends per variant. A campaign of 50 teaches
+almost nothing, and reinforcing 1-reply-out-of-3 is reinforcing noise — which compounds, because the
+"winner" then gets used more, earns more replies by volume, and looks even more like a winner.
+Required guards:
+- a minimum sample per variant before any nudge;
+- a floor that never lets a variant go extinct — always keep exploring;
+- treat the signal as a weak prior, never a rule.
+This is a multi-armed bandit; Thompson sampling handles the small-sample explore/exploit tension and
+degrades gracefully on thin data. **Adaptation must never collapse variety — that is the very problem
+the variety work exists to fix.**
+
+**Confounding, stated plainly:** a reply depends far more on WHO was emailed than on which opener was
+used. Lead quality is the dominant variable. Attributing a reply to sentence construction is a strong
+causal claim from weak evidence, and the guards above are what keep it honest.
+
+**Voice fidelity outranks reply rate.** Reinforcement selects among the user's OWN patterns and never
+invents a high-performing one. Optimising toward whatever gets replies and away from sounding like
+them loses the thing the product is for.
+
+Note this is the second adaptation loop. `learned_corrections` learns from the user's EDITS ("that is
+not how I would put it"); this learns from OUTCOMES ("that worked"). They are complementary and must
+not be merged.
 
 ### 2026-08-12 — Replicate the voice, not the typos
 
