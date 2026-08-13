@@ -18,10 +18,17 @@ const { default: AuthPage } = await import('../src/pages/AuthPage.jsx');
 
 const EMAIL = 'ana@corp.com';
 const PASSWORD = 'correct-horse';
+// The sign-off name (CLAUDE.md, Decisions 2026-08-13): required at signup, and
+// the only field signup gained.
+const FULL_NAME = 'Ana Ruiz';
 
 async function fillCredentials(user) {
   await user.type(screen.getByLabelText('Email address'), EMAIL);
   await user.type(screen.getByLabelText('Password'), PASSWORD);
+}
+
+async function openSignup(user) {
+  await user.click(screen.getByRole('button', { name: /No account yet/ }));
 }
 
 beforeEach(() => {
@@ -74,16 +81,55 @@ describe('AuthPage', () => {
     expect(signUp).not.toHaveBeenCalled();
   });
 
-  it('signs up through Supabase in signup mode', async () => {
+  /**
+   * The name travels as auth signup METADATA. The migration 006 trigger reads
+   * raw_user_meta_data->>'full_name' and puts it on the profile row, so there is
+   * no second write to lose — and without it a new user gets no sign-off
+   * enforcement at all.
+   */
+  it('signs up through Supabase with the full name as auth metadata', async () => {
     const user = userEvent.setup();
 
     render(<AuthPage />);
-    await user.click(screen.getByRole('button', { name: /No account yet/ }));
+    await openSignup(user);
+    await user.type(screen.getByLabelText('Full name'), FULL_NAME);
     await fillCredentials(user);
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
-    expect(signUp).toHaveBeenCalledWith({ email: EMAIL, password: PASSWORD });
+    expect(signUp).toHaveBeenCalledWith({
+      email: EMAIL,
+      password: PASSWORD,
+      options: { data: { full_name: FULL_NAME } }
+    });
     expect(signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it('asks for the full name on signup only, never on sign-in', async () => {
+    const user = userEvent.setup();
+
+    render(<AuthPage />);
+    expect(screen.queryByLabelText('Full name')).not.toBeInTheDocument();
+
+    await openSignup(user);
+    expect(screen.getByLabelText('Full name')).toBeInTheDocument();
+
+    // Signup gained this field and nothing else: no company, no role.
+    expect(screen.queryByLabelText(/company/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/role/i)).not.toBeInTheDocument();
+  });
+
+  it('refuses to sign up without a name', async () => {
+    const user = userEvent.setup();
+
+    render(<AuthPage />);
+    await openSignup(user);
+    // Spaces, so the browser's own `required` check passes and OURS is what runs.
+    await user.type(screen.getByLabelText('Full name'), '   ');
+    await fillCredentials(user);
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter your full name.');
+    expect(signUp).not.toHaveBeenCalled();
   });
 
   it('surfaces an auth error', async () => {

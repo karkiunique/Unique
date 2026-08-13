@@ -118,13 +118,17 @@ export function findBannedPhrases(draft, ownText = '') {
 /**
  * Both code-side guardrails, in one list: they share the single retry rather
  * than each buying the user another round trip.
+ *
+ * `senderName` is the sign-off name (Decisions, 2026-08-13). It is what makes the
+ * sign-off check work for a user whose profile names no closings; absent, the
+ * check falls back to style matching alone.
  */
-export function buildGuardrailCheck(profileJson, exemplars) {
+export function buildGuardrailCheck(profileJson, exemplars, senderName) {
   const ownText = ownWords(profileJson, exemplars);
 
   return (candidate) => [
     ...findBannedPhrases(candidate, ownText),
-    ...findMissingSignoff(candidate, profileJson)
+    ...findMissingSignoff(candidate, profileJson, senderName)
   ];
 }
 
@@ -159,7 +163,11 @@ export async function scoreFidelity(context, draft) {
  * review; CLAUDE.md §3 explains why those differ).
  */
 export async function draftInVoice(context) {
-  const checkGuardrails = buildGuardrailCheck(context.profileJson, context.exemplars);
+  const checkGuardrails = buildGuardrailCheck(
+    context.profileJson,
+    context.exemplars,
+    context.senderName
+  );
 
   let draft = await draftOnce(context, []);
   let guardrail = checkGuardrails(draft);

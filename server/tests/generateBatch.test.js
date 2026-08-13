@@ -1161,7 +1161,10 @@ describe('owner scoping', () => {
 
     expect(queries.length).toBeGreaterThan(0);
     for (const query of queries) {
-      expect(query.filters.user_id).toBe(OWNER);
+      // `profiles` is keyed by the auth user id, so `id` IS its owner filter;
+      // every other table carries user_id. Either way: this user, or nothing.
+      const owner = query.table === 'profiles' ? query.filters.id : query.filters.user_id;
+      expect(owner, query.table).toBe(OWNER);
     }
   });
 

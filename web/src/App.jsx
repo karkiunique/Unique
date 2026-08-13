@@ -8,6 +8,7 @@ import OnboardingPage from './pages/OnboardingPage.jsx';
 import ThreadsPage from './pages/ThreadsPage.jsx';
 import UnsubscribePage, { unsubscribeTokenFromPath } from './pages/UnsubscribePage.jsx';
 import { Shell } from './components/Shell.jsx';
+import SignoffNamePrompt from './components/SignoffNamePrompt.jsx';
 import { isSupabaseConfigured, getSupabase } from './lib/supabase.js';
 
 /**
@@ -118,6 +119,8 @@ export default function App() {
 
   return (
     <Shell email={session?.user?.email} path={shellPath}>
+      {/* Pre-006 accounts have no sign-off name. Asks for it once, blocks nothing. */}
+      <SignoffNamePrompt />
       <Page session={session} campaignId={campaignId} />
     </Shell>
   );

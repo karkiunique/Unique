@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { loadProfileWithExemplars } from './voice.js';
+import { getSenderName } from './senderName.js';
 import { PERSONALIZED_MARKER } from './campaigns.js';
 import { campaignGoal } from './campaignGoal.js';
 import { createVarietyLedger, variantRecord } from './batchVariety.js';
@@ -214,6 +215,8 @@ export async function draftForLead(run, lead, assignment = null) {
   const shared = {
     profileJson: run.voice.profileJson,
     exemplars: run.voice.exemplars,
+    // The name every letter in this run signs off with (Decisions, 2026-08-13).
+    senderName: run.senderName ?? null,
     recipient: recipientOf(lead),
     research: lead.research_json
   };
@@ -344,6 +347,9 @@ export async function beginCampaignGeneration(userId, campaignId, goal = '') {
   }
 
   const voice = await loadProfileWithExemplars(userId);
+  // Read once for the whole run rather than per lead: it cannot change mid-batch,
+  // and null (a pre-006 account) is a supported state that blocks nothing.
+  const senderName = await getSenderName(userId);
 
   // Template mode has no opener to vary: the letter around the personalised gaps
   // is the user's own writing, identical for every lead by their own choice.
@@ -357,6 +363,7 @@ export async function beginCampaignGeneration(userId, campaignId, goal = '') {
     campaign,
     leads,
     voice,
+    senderName,
     variety,
     goal: campaignGoal(campaign, goal),
     pending: leads.length

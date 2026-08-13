@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 
-const { getUser } = vi.hoisted(() => ({ getUser: vi.fn() }));
+const { getUser, supabaseFrom } = vi.hoisted(() => ({ getUser: vi.fn(), supabaseFrom: vi.fn() }));
 
 // No real network in tests: Supabase is fully mocked.
 vi.mock('../src/lib/supabase.js', () => ({
-  getSupabaseAdmin: () => ({ auth: { getUser } }),
+  getSupabaseAdmin: () => ({ auth: { getUser }, from: supabaseFrom }),
   resetSupabaseAdmin: () => {}
 }));
 
@@ -17,8 +17,22 @@ vi.mock('../src/lib/logger.js', () => ({
 const { createApp } = await import('../src/app.js');
 const { logger } = await import('../src/lib/logger.js');
 
+// The profiles row behind GET /api/me's sign-off name. This suite is about the
+// app's wiring, so the row is simply absent — meRoutes.test.js owns that contract.
+function emptyProfilesTable() {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({ data: null, error: null })
+  };
+
+  return chain;
+}
+
 beforeEach(() => {
   getUser.mockReset();
+  supabaseFrom.mockReset();
+  supabaseFrom.mockImplementation(() => ({ select: emptyProfilesTable }));
   logger.info.mockClear();
   logger.warn.mockClear();
   logger.error.mockClear();
@@ -68,7 +82,11 @@ describe('GET /api/me', () => {
     const res = await request(createApp()).get('/api/me').set('Authorization', 'Bearer good.jwt');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ user: { id: 'user-abc', email: 'dev@example.com' } });
+    // full_name is the sign-off name (Decisions, 2026-08-13): null here because
+    // this fixture has no profile row, which is what the backfill prompt looks for.
+    expect(res.body).toEqual({
+      user: { id: 'user-abc', email: 'dev@example.com', full_name: null }
+    });
   });
 });
 

@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { loadProfileWithExemplars } from './voice.js';
+import { getSenderName } from './senderName.js';
 import { variantRecord } from './batchVariety.js';
 import { campaignGoal, draftForLead, missingMergeVarsFor } from './generateBatch.js';
 import { LEAD_REVIEW_COLUMNS } from './leadReview.js';
@@ -145,7 +146,10 @@ export async function regenerateLead(userId, leadId, goal = '') {
   }
 
   const voice = await loadProfileWithExemplars(userId);
-  const run = { userId, campaign, voice, goal: campaignGoal(campaign, goal) };
+  // A redraft signs off by the same rules the batch used, so it carries the same
+  // sign-off name (Decisions, 2026-08-13). Null for a pre-006 account, which is fine.
+  const senderName = await getSenderName(userId);
+  const run = { userId, campaign, voice, senderName, goal: campaignGoal(campaign, goal) };
 
   // Deliberately un-caught: a model failure must leave the stored letter exactly
   // as it was, so nothing is written and the route answers with a status alone.

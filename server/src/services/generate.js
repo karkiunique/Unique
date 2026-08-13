@@ -1,6 +1,7 @@
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { loadProfileWithExemplars } from './voice.js';
+import { getSenderName } from './senderName.js';
 import { draftInVoice } from './generateCore.js';
 
 /**
@@ -42,10 +43,14 @@ export async function generateEmail(userId, input = {}) {
   }
 
   const { profileJson, exemplars } = await loadProfileWithExemplars(userId);
+  // Null for a pre-006 account that has not been prompted yet: the sign-off check
+  // then falls back to style matching, and nothing here blocks (Decisions 2026-08-13).
+  const senderName = await getSenderName(userId);
 
   const { draft, fidelityScore, violations } = await draftInVoice({
     profileJson,
     exemplars,
+    senderName,
     recipient: {
       email: to,
       name: typeof input.recipientName === 'string' ? input.recipientName.trim() : '',

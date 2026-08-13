@@ -1246,6 +1246,23 @@ a {
   margin: 10px 0 0;
 }
 
+/* ---- the sign-off name, asked once of accounts that predate it ---- */
+.namebanner {
+  border-left: 4px solid var(--red);
+  margin-bottom: 20px;
+}
+
+.namebanner-form {
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.namebanner-form .rfield {
+  flex: 1;
+  margin: 0;
+}
+
 /* ---- recipient check: loud when it matters, quiet when it does not ---- */
 .verify-line {
   display: flex;

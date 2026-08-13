@@ -1,4 +1,4 @@
-import { signoffStyles } from './signoff.js';
+import { signoffStyles, signoffName } from './signoff.js';
 
 /**
  * Prompts for single-email generation (CLAUDE.md §3). Kept separate from
@@ -122,22 +122,47 @@ function researchBlock(research) {
  * The closing is spelled out as its own requirement, not left to be inferred
  * from the profile JSON: signature BLOCKS are stripped from the corpus, so the
  * model has to be told that the closing line and the name still belong.
+ *
+ * THE NAME IS STATED OUTRIGHT when we have it (Decisions, 2026-08-13). A new
+ * user has no `signoff_styles` and often no exemplars, so "the name they sign
+ * with in the real emails" pointed at emails that were not in the prompt — the
+ * one instruction that must not depend on the profile is the one that depended on
+ * it most. It never points at samples that are not there.
  */
-function signoffBlock(profileJson) {
+function signoffBlock(profileJson, senderName, exemplars) {
   const styles = signoffStyles(profileJson);
+  const name = signoffName(senderName);
+  const hasExemplars = Array.isArray(exemplars) && exemplars.length > 0;
 
-  if (styles.length === 0) {
-    return [
-      'SIGN-OFF (required): close the way this person closes in the real emails above,',
-      'then their own name on the final line. Never leave the email unsigned.'
-    ].join('\n');
+  const noStyleOpening = hasExemplars
+    ? 'SIGN-OFF (required): close the way this person closes in the real emails above,'
+    : // Deliberately plain: with nothing of theirs to copy, asking for a closing
+      // "in their style" is an invitation to invent one.
+      'SIGN-OFF (required): end the body with a short, plain closing line,';
+
+  const lines = [
+    styles.length === 0
+      ? noStyleOpening
+      : 'SIGN-OFF (required): end the body with one of the closings listed below,'
+  ];
+
+  lines.push(
+    name === ''
+      ? 'then their own name on the final line. Never leave the email unsigned.'
+      : `then their own name on the final line, spelled exactly like this: ${name}`
+  );
+
+  if (name !== '') {
+    lines.push('Never leave the email unsigned, and never sign it with anybody else\'s name.');
+  }
+  if (styles.length > 0) {
+    lines.push(
+      'Their closings, to be used verbatim in form:',
+      ...styles.map((style) => `- ${style}`)
+    );
   }
 
-  return [
-    'SIGN-OFF (required): end the body with one of these closings, verbatim in form,',
-    'then their own name on the final line — the name they sign with in the real emails:',
-    ...styles.map((style) => `- ${style}`)
-  ].join('\n');
+  return lines.join('\n');
 }
 
 function violationBlock(violations) {
@@ -156,6 +181,7 @@ export function buildDraftUserPrompt({
   recipient,
   research,
   goal,
+  senderName,
   varietyBlock,
   violations
 }) {
@@ -175,7 +201,7 @@ export function buildDraftUserPrompt({
     String(goal ?? ''),
     '',
     String(varietyBlock ?? ''),
-    signoffBlock(profileJson),
+    signoffBlock(profileJson, senderName, exemplars),
     violationBlock(violations),
     '',
     'Write the email. Return only the JSON object.'
