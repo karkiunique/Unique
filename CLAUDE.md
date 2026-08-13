@@ -74,6 +74,10 @@ APP_URL=http://localhost:5173
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
+  full_name text,                    -- migration 006. THE authoritative sign-off name. Required at
+                                     -- signup by the app and populated by the 002 trigger from
+                                     -- auth metadata. Nullable in the DB ONLY because pre-006
+                                     -- accounts exist and a name cannot be invented for them.
   gmail_connected boolean default false,
   gmail_refresh_token_enc text,      -- AES-256-GCM encrypted app-side (TOKEN_ENC_KEY). NEVER stored plaintext, including in dev.
   daily_send_limit int default 30,
@@ -165,6 +169,8 @@ create table send_log (
 ```
 POST /gmail/connect          -> returns Google OAuth URL
 GET  /gmail/callback         -> handles code exchange, stores refresh token, kicks off ingestion
+PATCH /me                    -> set the user's full_name (the sign-off name). Backfill for pre-006
+                                accounts, which are prompted on next login. (added 2026-08-13)
 POST /voice/generate         -> builds voice profile from ingested sent emails; returns profile
 GET  /voice                  -> current voice profile
 POST /campaigns              -> create campaign {name, mode, template_body?, subject_template?}
@@ -334,6 +340,42 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-13 — The sign-off name is collected at signup, and enforced for everyone
+
+**The gap.** § 3 says every generated email must sign off as the user, by name, and treats a missing
+sign-off as a guardrail violation. The only deterministic enforcement is `findMissingSignoff()`, which
+returns `[]` when `signoff_styles` is empty — it cannot match a closing against a list that does not
+exist. So a brand-new user got **no sign-off enforcement at all**, and it compounded: a new user
+usually has no exemplars either, so the prompt's fallback pointed at example emails that were not in
+the prompt. The guarantee was strongest for established users and weakest for first-time senders, and
+the failure was silent — an unsigned letter went out under their name with no violation recorded.
+
+**The fix: `profiles.full_name`, collected as a REQUIRED field at account creation** (migration 006).
+This is the authoritative sign-off name. Chosen over deriving it from Google OAuth or the email
+local-part because it is simpler and more accurate — an email local-part is wrong often enough to be
+embarrassing on a cold email, and OAuth adds a data dependency for something the user can just type.
+
+**Signup stays minimal.** Full name is the ONLY new required field. Do NOT add company, role, or
+anything else to signup — collect those later, post-signup, if ever. Onboarding friction hits new
+users hardest, and they are exactly the population this decision exists to protect.
+
+**Enforcement is uniform, and that is the whole point.** `findMissingSignoff` checks the name for
+EVERY user, including one with no styles and no exemplars. The floor: **the name must appear in the
+sign-off region of the body.** Style matching stays as an ADDITIONAL check where `signoff_styles`
+exists. Enforcement must never again be weaker for a new user than for an established one.
+
+**Legacy accounts, and why this does not reintroduce the gap.** Pre-006 rows have no name, so the
+column is nullable in the DB — a name cannot be invented, and a `NOT NULL` would break the existing
+`auth.users` trigger. Those users are **prompted for it on next login**, and until they answer the
+check **falls back to the style-based test, never crashing and never blocking a send**. This is safe
+precisely because a legacy account is by definition an established one with `signoff_styles` — the
+population that already had enforcement. Nobody ends up worse off than today, and every new user is
+strictly better. **A null name must never throw on the send path.**
+
+The 002 trigger is extended to populate `full_name` from the signup metadata, so the name arrives with
+the row rather than needing a second write. Route: `PATCH /me` sets the name, used by the backfill
+prompt.
 
 ### 2026-08-12 — Batch variety, and the outcome-adaptation loop it feeds
 
