@@ -41,6 +41,11 @@ vi.mock('../src/lib/logger.js', () => ({
 const { beginCampaignGeneration, runCampaignGeneration, GENERATION_FAIL_REASON } = await import(
   '../src/services/generateBatch.js'
 );
+// Imported, never re-typed: a copy of the text here could drift from the prompt
+// the model is actually sent and the assertion would still pass.
+const { SPELLING_CARVE_OUT, FIDELITY_SPELLING_RULE } = await import(
+  '../src/services/generatePrompts.js'
+);
 const { encrypt } = await import('../src/lib/crypto.js');
 const { logger } = await import('../src/lib/logger.js');
 
@@ -57,6 +62,18 @@ const PROFILE = {
   typical_length_words: { min: 40, median: 70, max: 120 },
   never_does: ['never uses semicolons'],
   learned_corrections: []
+};
+
+/**
+ * The realistic database state today: profiles built before the carve-out landed
+ * catalogue the writer's own mistakes as traits. A prompt fix does not clean the
+ * stored rows, so the batch has to hold the line while reading one of these.
+ */
+const DIRTY_PROFILE = {
+  ...PROFILE,
+  capitalization_quirks: "capitalizes 'AI' as 'Ai' inconsistently",
+  vocabulary_level:
+    'plain business English, some spelling errors (buisness, eachother, seprate, micic)'
 };
 
 const TEMPLATE = 'Hi {{first_name}},\n\n{{personalized}}\n\nthanks,\nAna';
@@ -218,11 +235,11 @@ function seedLead(firstName, overrides = {}) {
   return row;
 }
 
-function seedProfile() {
+function seedProfile(profileJson = PROFILE) {
   profileRows.push({
     id: 'vp-1',
     user_id: OWNER,
-    profile_json: PROFILE,
+    profile_json: profileJson,
     exemplars_enc: encrypt(JSON.stringify([EXEMPLAR]))
   });
 }
@@ -260,6 +277,10 @@ function goalSentToModel() {
 
 function callsForLead(leadId) {
   return modelCalls.filter((call) => call.leadId === leadId);
+}
+
+function callOfKind(leadId, kind) {
+  return callsForLead(leadId).find((call) => call.kind === kind);
 }
 
 function loggedText() {
@@ -306,7 +327,7 @@ beforeEach(() => {
     const key = `${lead?.id ?? 'none'}:${kind}`;
     attempts[key] = (attempts[key] ?? 0) + 1;
 
-    modelCalls.push({ kind, leadId: lead?.id ?? null, prompt });
+    modelCalls.push({ kind, leadId: lead?.id ?? null, system: request.system, prompt });
     timeline.push('model');
     inflight += 1;
     maxInflight = Math.max(maxInflight, inflight);
@@ -629,6 +650,84 @@ describe('template mode', () => {
     expect(alpha.generated_body).toBe('Hi Alpha,\n\nsaw Alpha in the news.\n\nthanks,\nAna');
     expect(alpha.generated_body).not.toContain('I hope this email finds you well');
     expect(summary).toMatchObject({ generated: 1, failed: 0 });
+  });
+});
+
+/**
+ * "Replicate the voice, not the typos" (CLAUDE.md, Decisions 2026-08-12).
+ *
+ * THE REAL INCIDENT WAS A BATCH — six letters went out reading "less then ever"
+ * and "Ai" for "AI". spellingCarveOut.test.js proves the prompt TEXT and
+ * generate.test.js proves the wiring for one-at-a-time compose; neither touches
+ * this path. Asserted on the payload the model actually received, so a batch that
+ * stopped calling a builder — or called one of its own — fails here even while
+ * every prompt unit test stays green.
+ */
+describe('the spelling carve-out reaches the model on the batch path', () => {
+  it('carries it in the system and the user prompt in voice mode', async () => {
+    seedCampaign();
+    seedProfile();
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    const draft = callOfKind(alpha.id, 'draft');
+    expect(draft.system).toContain(SPELLING_CARVE_OUT);
+    expect(draft.prompt).toContain(SPELLING_CARVE_OUT);
+  });
+
+  // seedCampaign() defaults to voice mode, so template mode has to be asked for
+  // by name — that default is exactly how two template-mode holes went unnoticed.
+  it('carries it in the system and the user prompt in template mode', async () => {
+    seedCampaign({ mode: 'template', template_body: TEMPLATE, subject_template: SUBJECT_TEMPLATE });
+    seedProfile();
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    const personalize = callOfKind(alpha.id, 'personalize');
+    expect(personalize).toBeDefined();
+    expect(personalize.system).toContain(SPELLING_CARVE_OUT);
+    expect(personalize.prompt).toContain(SPELLING_CARVE_OUT);
+  });
+
+  /**
+   * The scorer needs its own copy. Without it a correctly spelled draft reads as a
+   * deviation from a profile that lists the typos as traits, and the sub-80 retry
+   * then feeds the typo back in as a violation to fix.
+   */
+  it('carries the spelling rule on the fidelity call', async () => {
+    seedCampaign();
+    seedProfile();
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    const fidelity = callOfKind(alpha.id, 'fidelity');
+    expect(fidelity.system).toContain(FIDELITY_SPELLING_RULE);
+    expect(fidelity.prompt).toContain(FIDELITY_SPELLING_RULE);
+  });
+
+  it('overrides a stored profile that lists the misspellings as traits', async () => {
+    seedCampaign();
+    seedProfile(DIRTY_PROFILE);
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    const draft = callOfKind(alpha.id, 'draft');
+    const fidelity = callOfKind(alpha.id, 'fidelity');
+
+    // First that the poison really reached the model. Skip this and the carve-out
+    // assertions below pass against a clean fixture and prove nothing.
+    for (const call of [draft, fidelity]) {
+      expect(call.prompt).toContain("capitalizes 'AI' as 'Ai' inconsistently");
+      expect(call.prompt).toContain('some spelling errors (buisness, eachother, seprate, micic)');
+    }
+
+    // Then that the instruction is there anyway, beside the profile it overrides.
+    expect(draft.prompt).toContain(SPELLING_CARVE_OUT);
+    expect(fidelity.prompt).toContain(FIDELITY_SPELLING_RULE);
   });
 });
 

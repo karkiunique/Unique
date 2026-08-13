@@ -24,6 +24,31 @@ export const PROFILE_SCHEMA = `{
   "never_does": ["patterns absent from their writing that AI would typically add - e.g. never says 'I hope this finds you well', never uses semicolons"]
 }`;
 
+/**
+ * CLAUDE.md §2 "Errors are not traits" (Decisions, 2026-08-12). A real profile
+ * recorded `vocabulary_level: "...some spelling errors (buisness, eachother)"` and
+ * `capitalization_quirks: "capitalizes 'AI' as 'Ai' inconsistently"`; generation
+ * then dutifully reproduced both. The profile is the first place the error gets
+ * turned into an instruction, so it is the first place to stop it.
+ *
+ * The line stops at spelling and proper nouns. Loose syntax stays in the profile —
+ * `sentence_rhythm` and `punctuation_habits` must still record the comma splices.
+ */
+export const ERRORS_ARE_NOT_TRAITS = [
+  'Errors are not traits. Describe how this person WRITES, never the mistakes they make.',
+  'Do not record misspellings, wrong homophones (then/than, its/it\'s) or inconsistent',
+  'proper-noun capitalization anywhere in the profile, and never name a specific',
+  'misspelled word in any field. capitalization_quirks is for DELIBERATE style only —',
+  'lowercase "i", no caps after a dash, ALL-CAPS for emphasis — never for a typo such as',
+  '"Ai" for "AI" or a product name spelled three ways. vocabulary_level describes word',
+  'choice and register, never spelling accuracy.',
+  '',
+  'Their syntax is NOT an error and belongs in the profile in full: comma splices, run-ons',
+  'joined by a comma, commas where a period would be standard, fragments, missing full',
+  'stops, minimal punctuation. Record those faithfully in sentence_rhythm and',
+  'punctuation_habits — they are the voice.'
+].join('\n');
+
 export const PROFILE_SYSTEM_PROMPT = [
   'You are a forensic writing-style analyst. You are given real emails one person sent.',
   'Describe how this person writes at the level of mechanics, not vibes: exact greetings,',
@@ -42,6 +67,8 @@ export const PROFILE_SYSTEM_PROMPT = [
   '',
   'A sign-off is the closing itself ("Best,", "Thanks [Name],") — never the signature block',
   'under it. Do not put a name, job title, company or website into signoff_styles.',
+  '',
+  ERRORS_ARE_NOT_TRAITS,
   '',
   'Count words for typical_length_words from the emails themselves, but over substantive',
   'emails only. Exclude one-word and one-line acknowledgements ("thanks", "sounds good", "ok",',

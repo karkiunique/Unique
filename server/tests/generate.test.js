@@ -262,6 +262,27 @@ describe('generateEmail', () => {
     });
   });
 
+  // Decisions, 2026-08-12: "replicate the voice, not the typos". Asserted on the
+  // payload actually handed to the model, so a prompt builder that stopped being
+  // wired in would fail here even while its own unit tests still passed.
+  it('sends the spelling carve-out to the model on both the draft and the score call', async () => {
+    mockProfileRow();
+    create
+      .mockResolvedValueOnce(textResponse(draftJson('about the raise', SIGNED_BODY)))
+      .mockResolvedValueOnce(textResponse(fidelityJson(91)));
+
+    await generateEmail('user-1', { to: TO, goal: GOAL });
+
+    const [draftCall, fidelityCall] = create.mock.calls.map((call) => call[0]);
+
+    expect(draftCall.system).toMatch(/Never reproduce a misspelling/i);
+    expect(draftCall.messages[0].content).toMatch(/Never reproduce a misspelling/i);
+    expect(draftCall.messages[0].content).toMatch(/may contain the writer's own typos/i);
+
+    expect(fidelityCall.system).toMatch(/CORRECT SPELLING IS NEVER A VIOLATION/);
+    expect(fidelityCall.messages[0].content).toMatch(/CORRECT SPELLING IS NEVER A VIOLATION/);
+  });
+
   it('still generates when the profile has no exemplars stored', async () => {
     mockProfileRow({ exemplars: [] });
     create
