@@ -638,6 +638,14 @@ Why not upgrade: `googleapis@173.0.0` clears `uuid` but pulls `gaxios@7.1.3` →
 **Revisit when:** googleapis clears the `uuid` advisory without dragging in the `gaxios@7` chain, or `brace-expansion` ships a 1.x/2.x backport. Not before. Do not "fix" this with `npm audit fix --force`.
 
 ## Rules
+- **This is a platform, not one person's tool. Every feature must work for a user whose voice
+  profile is thin or empty.** WitWeb / USC / El Camino is demo seed data belonging to one account —
+  it must never appear in source, defaults, prompts or fallbacks. A new user signs up with few sent
+  emails, so `sentence_starters`, `signoff_styles`, `how_they_ask`, `typical_length_words` and
+  `exemplars` may each be missing, empty, null or the wrong type, and a user may delete their
+  exemplars in Settings at any time. Nothing may throw, and nothing may invent a construction the
+  user does not actually use in order to fill a gap — degrade to less personalisation, never to
+  fabricated personality. **Every generation feature ships with a sparse-profile test.**
 - No TypeScript, no Next.js, no ORM (use supabase-js / raw SQL).
 - **Testing is mandatory:** Phase 1 sets up vitest (server) + eslint (both apps) with npm scripts: `npm run test`, `npm run lint`, `npm run check` (runs both + `node --check` on entry files). Every feature ships with tests for its service functions (mock Gmail/Anthropic/Supabase calls — never hit real APIs in tests). The checker agent depends on these scripts existing.
 - **Agent workflow:** all features are built via the builder/checker loop defined in `.claude/agents/` and `.claude/commands/build-loop.md`. The builder never runs tests; the checker never edits code.
