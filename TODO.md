@@ -127,6 +127,19 @@ Recorded here so they are not rediscovered:
 
 # Known limitations (documented so they are not re-litigated)
 
+## An intermittent failure in `campaignRoutes.test.js` auth tests — SEEN TWICE
+
+Two sightings, both on supertest auth tests in the same file, both unreproducible afterwards:
+
+1. `campaign routes — authentication > 401s on every campaign route without a token` — `Error: socket hang up`. Did not reproduce in 5 subsequent runs.
+2. `POST /api/campaigns/:id/leads > 401s without a token, without reaching the service` — `expected 404 to be 401`. Did not reproduce in ~28 runs, including shuffled ordering, under concurrent load, and in isolation (43/43).
+
+**It is not a product defect.** `requireAuth` returns 401 unconditionally when the header is absent, with no fall-through, and the route is registered statically — so a 404 means the request never reached the campaigns router at all. Both sightings were on a cold, CPU-contended first run.
+
+**Leading hypothesis:** ephemeral-port reuse in `supertest` under parallel vitest workers, where a request lands on a different worker's app whose catch-all returns exactly `404 {error:'Not found'}`. That matches the observed status precisely. **Unproven.**
+
+**Why it matters now:** Phase 4 adds a queue and a worker, i.e. real concurrency and real timing. A test that already fails occasionally for unpinned reasons will be far harder to diagnose once genuine async is in the mix, and it will erode trust in the suite exactly when the suite is guarding autonomous sending. Worth pinning down before Phase 4, not after — likely by giving supertest an explicit listening server per test rather than letting it pick a port.
+
 ## `server/src/services/generateBatch.js` is 373 lines
 
 Over CLAUDE.md's "~300 lines, split when bigger." Left as-is deliberately: it had just been
