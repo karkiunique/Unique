@@ -156,6 +156,7 @@ export function buildDraftUserPrompt({
   recipient,
   research,
   goal,
+  varietyBlock,
   violations
 }) {
   return [
@@ -173,6 +174,7 @@ export function buildDraftUserPrompt({
     'WHAT THIS EMAIL NEEDS TO DO:',
     String(goal ?? ''),
     '',
+    String(varietyBlock ?? ''),
     signoffBlock(profileJson),
     violationBlock(violations),
     '',

@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-12 | Node v20.20.2 | branch main
-# Totals: server=653, web=255, combined=908
+# Updated: 2026-08-12 | Node v20.20.2 | branch fix/voice-not-typos
+# Totals: server=677, web=255, combined=932
 
-### SERVER (/server, vitest, 653 tests) ###
+### SERVER (/server, vitest, 677 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -29,6 +29,20 @@ tests/auth.test.js > requireAuth > 401s when Supabase returns no user
 tests/auth.test.js > requireAuth > 401s when no Authorization header is present
 tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
 tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/batchVariety.test.js > reading the user's own constructions > falls back to the whole description when it quotes no example
+tests/batchVariety.test.js > reading the user's own constructions > returns nothing rather than guessing when the profile names no openers
+tests/batchVariety.test.js > reading the user's own constructions > takes the ask forms from the quoted examples inside how_they_ask
+tests/batchVariety.test.js > reading the user's own constructions > trims, de-duplicates and drops anything unusable
+tests/batchVariety.test.js > the variant record > bands a letter against the median the user actually writes to
+tests/batchVariety.test.js > the variant record > leaves the assigned fields null when there was no batch to vary against
+tests/batchVariety.test.js > the variant record > records all four fields for a lead that had an assignment
+tests/batchVariety.test.js > the variant record > reports an unknown band rather than guessing one
+tests/batchVariety.test.js > the variety ledger > carries the variety heading so the prompt is greppable
+tests/batchVariety.test.js > the variety ledger > hands out a different opener and ask to each lead, in their own words
+tests/batchVariety.test.js > the variety ledger > names the openers already reserved, and names none to the first lead
+tests/batchVariety.test.js > the variety ledger > reuses in order once the list is spent, never running dry
+tests/batchVariety.test.js > the variety ledger > says nothing at all when the profile names no constructions
+tests/batchVariety.test.js > the variety ledger > suggests nothing the user does not already write
 tests/campaignGoal.test.js > campaignGoal > carries the user's own subject line through
 tests/campaignGoal.test.js > campaignGoal > falls back again when a campaign has neither, rather than returning nothing
 tests/campaignGoal.test.js > campaignGoal > falls back to the campaign name when there is no brief
@@ -213,6 +227,15 @@ tests/generate.test.js > generateEmail — signing off as the user > does not re
 tests/generate.test.js > generateEmail — signing off as the user > names the user's own closings in the draft prompt
 tests/generate.test.js > generateEmail — signing off as the user > regenerates exactly once when the draft does not sign off
 tests/generate.test.js > generateEmail — signing off as the user > treats a closing with no name as unsigned
+tests/generateBatch.test.js > batch variety > does not penalise the first letter, which has no run behind it
+tests/generateBatch.test.js > batch variety > keeps every letter matched to its own variant at concurrency 3
+tests/generateBatch.test.js > batch variety > keeps the variant and the constructions out of the logs
+tests/generateBatch.test.js > batch variety > offers only constructions this person actually writes, and invents none
+tests/generateBatch.test.js > batch variety > records the variant on the same write as the body
+tests/generateBatch.test.js > batch variety > spreads and reuses when the openers run out, and still invents none
+tests/generateBatch.test.js > batch variety > stamps the variant with the version of the profile that wrote the letter
+tests/generateBatch.test.js > batch variety > tells each letter which openers the earlier letters in the run already used
+tests/generateBatch.test.js > batch variety > varies nothing in template mode but still records a variant
 tests/generateBatch.test.js > concurrency and progress > never runs more than three leads at once
 tests/generateBatch.test.js > concurrency and progress > writes each lead as it completes rather than once at the end
 tests/generateBatch.test.js > owner scoping > 400s before any model call when there is no voice profile yet
@@ -341,6 +364,7 @@ tests/leadRegenerate.test.js > regenerateLead > redrafts a lead the batch could 
 tests/leadRegenerate.test.js > regenerateLead > refuses a lead missing a merge variable, naming the variable and not the value
 tests/leadRegenerate.test.js > regenerateLead > refuses to redraft a letter that has gone out or is on its way
 tests/leadRegenerate.test.js > regenerateLead > reuses the batch's drafting, with this user's voice and campaign
+tests/leadRegenerate.test.js > regenerateLead > rewrites the variant on the same update, never leaving the old one behind
 tests/leadRegenerate.test.js > regenerateLead > stores the new letter and sends the lead back for approval
 tests/leadReview.test.js > editing a letter > 400s when the patch carries nothing editable
 tests/leadReview.test.js > editing a letter > approves the edited words when both arrive together

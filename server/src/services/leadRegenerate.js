@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from '../lib/supabase.js';
 import { logger } from '../lib/logger.js';
 import { httpError } from '../lib/httpError.js';
 import { loadProfileWithExemplars } from './voice.js';
+import { variantRecord } from './batchVariety.js';
 import { campaignGoal, draftForLead, missingMergeVarsFor } from './generateBatch.js';
 import { LEAD_REVIEW_COLUMNS } from './leadReview.js';
 
@@ -94,7 +95,7 @@ async function findOwnedCampaign(userId, campaignId) {
   return data;
 }
 
-async function saveRedraft(userId, leadId, draft, fidelityScore) {
+async function saveRedraft(userId, leadId, draft, fidelityScore, variant) {
   const { data, error } = await getSupabaseAdmin()
     .from('leads')
     .update({
@@ -103,6 +104,10 @@ async function saveRedraft(userId, leadId, draft, fidelityScore) {
       // The previous hand edit belonged to the previous letter.
       edited_body: null,
       fidelity_score: Number.isFinite(fidelityScore) ? fidelityScore : null,
+      // So does the previous variant. Rewritten on the same update as the body,
+      // because a variant that describes a letter no longer on the row is worse
+      // than none at all — the adaptation loop would learn from a ghost.
+      variant_json: variant,
       status: GENERATED
     })
     .eq('id', leadId)
@@ -146,7 +151,15 @@ export async function regenerateLead(userId, leadId, goal = '') {
   // as it was, so nothing is written and the route answers with a status alone.
   const result = await draftForLead(run, lead);
 
-  const saved = await saveRedraft(userId, id, result.draft, result.fidelityScore);
+  // One lead on its own is not a batch, so there is no variety assignment to
+  // record — only the band the letter landed in and the profile that wrote it.
+  const variant = variantRecord({
+    body: result.draft.body,
+    profileJson: voice.profileJson,
+    profileVersion: voice.version
+  });
+
+  const saved = await saveRedraft(userId, id, result.draft, result.fidelityScore, variant);
 
   logger.info('lead_redrafted', {
     userId,

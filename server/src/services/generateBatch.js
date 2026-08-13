@@ -6,6 +6,7 @@ import { httpError } from '../lib/httpError.js';
 import { loadProfileWithExemplars } from './voice.js';
 import { PERSONALIZED_MARKER } from './campaigns.js';
 import { campaignGoal } from './campaignGoal.js';
+import { createVarietyLedger, variantRecord } from './batchVariety.js';
 import { draftInVoice } from './generateCore.js';
 import { draftFromTemplate } from './generateTemplate.js';
 import { applyMergeVars, findMissingMergeVars } from './templateMerge.js';
@@ -148,13 +149,15 @@ async function setCampaignStatus(userId, campaignId, status) {
   if (error) throw httpError(500, 'Could not update the campaign status');
 }
 
-async function saveGeneratedLead(userId, leadId, draft, fidelityScore) {
+async function saveGeneratedLead(userId, leadId, draft, fidelityScore, variant) {
   const { error } = await getSupabaseAdmin()
     .from('leads')
     .update({
       generated_subject: draft.subject,
       generated_body: draft.body,
       fidelity_score: Number.isFinite(fidelityScore) ? fidelityScore : null,
+      // Same write as the body: a letter and its variant can never disagree.
+      variant_json: variant,
       status: GENERATED_STATUS
     })
     .eq('id', leadId)
@@ -207,7 +210,7 @@ export function missingMergeVarsFor(campaign, lead) {
  * deliberately NOT part of it: the batch flags a failed lead, while a redraft
  * from the review screen leaves the existing letter alone.
  */
-export async function draftForLead(run, lead) {
+export async function draftForLead(run, lead, assignment = null) {
   const shared = {
     profileJson: run.voice.profileJson,
     exemplars: run.voice.exemplars,
@@ -225,7 +228,11 @@ export async function draftForLead(run, lead) {
     });
   }
 
-  const result = await draftInVoice({ ...shared, goal: run.goal });
+  const result = await draftInVoice({
+    ...shared,
+    goal: run.goal,
+    varietyBlock: assignment?.promptBlock ?? ''
+  });
 
   // A subject line the user wrote themselves wins over the model's.
   return subject === '' ? result : { ...result, draft: { ...result.draft, subject } };
@@ -263,9 +270,13 @@ async function generateOneLead(run, lead) {
     return { leadId: lead.id, ok: false, reason };
   }
 
+  // Reserved before the model call rather than recorded after it — batchVariety.js
+  // explains why that is what makes the ledger correct at concurrency 3.
+  const assignment = run.variety ? run.variety.reserve() : null;
+
   let result;
   try {
-    result = await draftForLead(run, lead);
+    result = await draftForLead(run, lead, assignment);
   } catch {
     // The error is dropped rather than inspected: our own messages are safe, but
     // an SDK error can carry request content, and this path must never leak it.
@@ -274,10 +285,17 @@ async function generateOneLead(run, lead) {
     return { leadId: lead.id, ok: false, reason: GENERATION_FAIL_REASON.MODEL_FAILED };
   }
 
+  const variant = variantRecord({
+    assignment,
+    body: result.draft.body,
+    profileJson: run.voice.profileJson,
+    profileVersion: run.voice.version
+  });
+
   try {
     // Written as this lead completes, not at the end of the run, so the review
     // screen can poll progress lead by lead.
-    await saveGeneratedLead(run.userId, lead.id, result.draft, result.fidelityScore);
+    await saveGeneratedLead(run.userId, lead.id, result.draft, result.fidelityScore, variant);
   } catch {
     // The draft was fine; the write was not. Leave the lead `pending` so a
     // re-run redoes it rather than stranding it as failed.
@@ -327,6 +345,10 @@ export async function beginCampaignGeneration(userId, campaignId, goal = '') {
 
   const voice = await loadProfileWithExemplars(userId);
 
+  // Template mode has no opener to vary: the letter around the personalised gaps
+  // is the user's own writing, identical for every lead by their own choice.
+  const variety = campaign.mode === 'template' ? null : createVarietyLedger(voice.profileJson);
+
   await setCampaignStatus(userId, id, GENERATING_CAMPAIGN);
   logger.info('campaign_generation_started', { userId, campaignId: id, count: leads.length });
 
@@ -335,6 +357,7 @@ export async function beginCampaignGeneration(userId, campaignId, goal = '') {
     campaign,
     leads,
     voice,
+    variety,
     goal: campaignGoal(campaign, goal),
     pending: leads.length
   };
