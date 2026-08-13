@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-09 | Node v20.20.2 | branch feat/phase-3
-# Totals: server=634, web=255, combined=889
+# Updated: 2026-08-12 | Node v20.20.2 | branch main
+# Totals: server=653, web=255, combined=908
 
-### SERVER (/server, vitest, 634 tests) ###
+### SERVER (/server, vitest, 653 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -205,6 +205,7 @@ tests/generate.test.js > generateEmail > regenerates exactly once when a banned 
 tests/generate.test.js > generateEmail > regenerates once on a low fidelity score and returns the score rather than throwing
 tests/generate.test.js > generateEmail > rejects "quick question" as a subject and regenerates once
 tests/generate.test.js > generateEmail > returns a subject and body, parsing a fenced ```json response
+tests/generate.test.js > generateEmail > sends the spelling carve-out to the model on both the draft and the score call
 tests/generate.test.js > generateEmail > still generates when the profile has no exemplars stored
 tests/generate.test.js > generateEmail > validates its input before calling the model
 tests/generate.test.js > generateEmail — signing off as the user > does not block or retry when signoff_styles is missing, empty or malformed
@@ -230,6 +231,10 @@ tests/generateBatch.test.js > template mode > re-personalises once when a sectio
 tests/generateBatch.test.js > template mode > refuses to start when a template campaign has no subject line
 tests/generateBatch.test.js > template mode > refuses to start when the template lost its {{personalized}} section
 tests/generateBatch.test.js > template mode > substitutes merge vars in code — the model never sees a raw {{var}}
+tests/generateBatch.test.js > the spelling carve-out reaches the model on the batch path > carries it in the system and the user prompt in template mode
+tests/generateBatch.test.js > the spelling carve-out reaches the model on the batch path > carries it in the system and the user prompt in voice mode
+tests/generateBatch.test.js > the spelling carve-out reaches the model on the batch path > carries the spelling rule on the fidelity call
+tests/generateBatch.test.js > the spelling carve-out reaches the model on the batch path > overrides a stored profile that lists the misspellings as traits
 tests/generateBatch.test.js > voice mode > adds the answered clarifications to the goal and leaves the skipped ones out
 tests/generateBatch.test.js > voice mode > appends no unsubscribe footer to a generated body
 tests/generateBatch.test.js > voice mode > drafts every pending lead and stores subject, body and score
@@ -531,6 +536,20 @@ tests/signoff.test.js > findMissingSignoff > reads the sign-off correctly on a b
 tests/signoff.test.js > signoffStyles > drops blanks but keeps the usable entries
 tests/signoff.test.js > signoffStyles > returns the user's own closings
 tests/signoff.test.js > signoffStyles > survives a missing, empty or malformed list without throwing
+tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > carries the same carve-out into template-mode personalization
+tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > holds the line when the stored profile catalogues the errors as traits
+tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > still says nothing about typos when there are no exemplars to warn about
+tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > tells the model to spell correctly and to case proper nouns consistently
+tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > warns that the exemplars are raw mail whose typos must not be copied
+tests/spellingCarveOut.test.js > no prompt instructs the model to correct rhythm, syntax or punctuation > contains no instruction to fix grammar, syntax, rhythm or punctuation
+tests/spellingCarveOut.test.js > no prompt instructs the model to correct rhythm, syntax or punctuation > contains none of the phrases that would polish the voice away
+tests/spellingCarveOut.test.js > no prompt instructs the model to correct rhythm, syntax or punctuation > keeps the draft instruction to copy their punctuation quirks verbatim
+tests/spellingCarveOut.test.js > no prompt instructs the model to correct rhythm, syntax or punctuation > names the loose-syntax habits as things to preserve, not to repair
+tests/spellingCarveOut.test.js > the fidelity checker never penalises correct spelling > states that correct spelling and consistent proper nouns are not violations
+tests/spellingCarveOut.test.js > the fidelity checker never penalises correct spelling > still asks the scorer to protect the loose syntax
+tests/spellingCarveOut.test.js > the voice profile builder does not catalogue errors as traits > forbids recording misspellings, homophones and typo casing in the profile
+tests/spellingCarveOut.test.js > the voice profile builder does not catalogue errors as traits > scopes capitalization_quirks to deliberate style and vocabulary_level to word choice
+tests/spellingCarveOut.test.js > the voice profile builder does not catalogue errors as traits > still requires the loose syntax to be recorded faithfully
 tests/supabaseClient.test.js > getSupabaseAdmin > constructs a client without throwing
 tests/supabaseClient.test.js > getSupabaseAdmin > memoizes the client across calls
 tests/supabaseClient.test.js > getSupabaseAdmin > returns a real client exposing .auth and .from

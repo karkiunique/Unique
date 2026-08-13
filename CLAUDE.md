@@ -211,6 +211,12 @@ One Anthropic API call over the cleaned sent emails. The profile must capture *m
 ```
 Parse defensively (strip ```json fences). Input = rolling window of up to 100 most recent sent emails (~80k chars cap; if over, keep the most recent that fit). The `never_does` list is critical — it's the anti-AI-slop filter.
 
+**Errors are not traits (Decisions, 2026-08-12).** The profile describes how this person *writes*, not
+the mistakes they make. Never catalogue misspellings, wrong homophones, or inconsistent proper-noun
+casing as characteristics — a profile that records `"some spelling errors (buisness, eachother)"` or
+`"capitalizes 'AI' as 'Ai'"` instructs the generator to reproduce them. `capitalization_quirks` is for
+DELIBERATE style (lowercase `i`, no caps after a dash), never for typos.
+
 ### 3. Generation (generate.js)
 - **Voice mode:** prompt = voice profile JSON + lead data + research_json + user's campaign goal → generate subject + body. Return JSON `{subject, body}`.
 - **Template mode:** user template contains `{{personalized}}` marker(s) plus merge vars. Merge vars (`{{first_name}}`, `{{company}}`, `{{title}}`) are replaced in code, NOT by the model. Only `{{personalized}}` sections go to Claude with lead research. If a merge var is missing for a lead, flag the lead `failed` with reason — never send with blank/wrong substitutions.
@@ -324,6 +330,46 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-12 — Replicate the voice, not the typos
+
+**Voice fidelity means sounding like the user, not misspelling like them.** A real batch went out
+reading "less then ever" and "Ai" instead of "AI", with the product name rendered three ways across
+six letters. That is not authenticity, it is a cold email that looks careless to a stranger.
+
+**The line, and it is deliberately narrow:**
+
+FIX — objective errors, never voice:
+- misspellings (`buisness`, `eachother`, `seprate`, `insituitons`)
+- wrong homophones (`then`/`than`, `your`/`you're`, `its`/`it's`)
+- proper-noun casing — `AI` not `Ai`, and ONE consistent spelling of the product name per email
+
+PRESERVE — looks like an error, IS the voice:
+- comma splices and run-ons joined by a comma (`sentence_rhythm` names this explicitly)
+- commas where a period would be standard; minimal punctuation generally
+- sentence fragments, omitted periods on closing lines
+- ALL-CAPS for emphasis
+- deliberate lowercase style, where a user genuinely writes that way
+- contractions at whatever rate they use them
+
+Fixing the second list would produce polished corporate prose, which is the exact opposite of the
+product. **Spelling and proper nouns only. Never touch syntax or rhythm.**
+
+**Three places have to change together, or the fix half-works:**
+1. **`voice.js` / `voicePrompts.js`** — the profile must stop CATALOGUING errors as traits. A real
+   profile contained `vocabulary_level: "...some spelling errors (buisness, eachother, seprate,
+   micic)"` and `capitalization_quirks: "capitalizes 'AI' as 'Ai' inconsistently"`. The profile was
+   instructing the error.
+2. **`generatePrompts.js`** — "copy their habits exactly, quirks included" needs the carve-out, and
+   the exemplar instruction "match them mechanically" needs it too: exemplars are raw real emails
+   and carry the user's real typos.
+3. **The fidelity checker** — it scores a draft against profile + exemplars. Left alone it will
+   PENALISE correct spelling as a deviation from the voice, and the sub-80 retry will push the model
+   back toward the typo. This is the non-obvious one.
+
+**Existing stored profiles already contain the error catalogue**, so a prompt fix alone does not
+clean them. Generation must defend against a dirty profile, AND users need a re-sync to get a clean
+one. Do not assume a prompt change is sufficient.
 
 ### 2026-08-09 — The campaign brief + clarify pass; and the review deck
 

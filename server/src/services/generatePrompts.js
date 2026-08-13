@@ -10,6 +10,35 @@ import { signoffStyles } from './signoff.js';
  * something that merely feels similar.
  */
 
+/**
+ * The spelling carve-out (CLAUDE.md, Decisions 2026-08-12 "Replicate the voice,
+ * not the typos").
+ *
+ * Repeated in the USER prompt right after the profile JSON, not left to the system
+ * prompt alone: stored profiles already catalogue the writer's mistakes as traits
+ * ("some spelling errors (buisness, eachother)", "capitalizes 'AI' as 'Ai'"), so the
+ * instruction must beat the text beside it — no clean re-sync can be assumed.
+ *
+ * Narrow on purpose: spelling and proper nouns ONLY. Their loose syntax is the
+ * voice, and repairing it would produce polished corporate prose.
+ */
+export const SPELLING_CARVE_OUT = [
+  'SPELLING AND PROPER NOUNS — the one exception to copying this person exactly:',
+  '- spell every word the standard way. Never reproduce a misspelling, and never',
+  '  copy one because the style profile above lists it as one of their traits.',
+  '- use the right homophone: than/then, your/you\'re, its/it\'s, their/there.',
+  '- capitalize proper nouns the standard way and keep them consistent: "AI", never',
+  '  "Ai"; one single spelling of each product or company name across the whole email.',
+  '- if the profile names specific misspellings, typos or inconsistent capitalization',
+  '  as characteristics of this person, IGNORE those entries. They are recorded',
+  '  mistakes, not voice, and a stranger reads them as carelessness.',
+  '',
+  'Never apply this to grammar, syntax, punctuation or rhythm. Their comma splices,',
+  'run-ons joined by a comma, commas where a period would be standard, fragments,',
+  'missing full stops, minimal punctuation, deliberate lowercase and ALL-CAPS for',
+  'emphasis are the voice itself. Leave every one of them exactly as they write them.'
+].join('\n');
+
 export const DRAFT_SYSTEM_PROMPT = [
   'You write a single cold outreach email AS a specific person, in their exact voice.',
   '',
@@ -20,8 +49,12 @@ export const DRAFT_SYSTEM_PROMPT = [
   '- greeting: use one of their actual greeting_styles, verbatim in form',
   '- sign-off: use one of their actual signoff_styles, verbatim in form, and SIGN IT',
   '  with their own name on the last line',
-  '- punctuation and capitalization: copy their habits exactly, quirks included',
+  '- punctuation and capitalization: copy their habits exactly, quirks included —',
+  '  their comma splices, run-ons, fragments, missing full stops, minimal punctuation,',
+  '  deliberate lowercase and ALL-CAPS emphasis all stay',
   '- vocabulary: their words, their register, no upgrade in formality',
+  '',
+  SPELLING_CARVE_OUT,
   '',
   'Never do anything in the profile\'s "never_does" list. That list is the whole',
   'anti-AI-slop filter — a single violation makes the email obviously machine-written.',
@@ -40,13 +73,29 @@ export const DRAFT_SYSTEM_PROMPT = [
   '{"subject": "", "body": ""}'
 ].join('\n');
 
+/**
+ * The exemplars are raw sent mail, so they carry the writer's real typos. Without
+ * this warning "match them mechanically" reads as an instruction to copy those too
+ * (Decisions, 2026-08-12).
+ */
+const EXEMPLAR_TYPO_WARNING = [
+  'their rhythm, sentence lengths, fragments, paragraph sizes, punctuation habits,',
+  'greeting form and sign-off form.',
+  '',
+  'These are real unedited emails, so they may contain the writer\'s own typos,',
+  'misspellings and inconsistent proper-noun casing — "Ai" for "AI", a product name',
+  'spelled two different ways. Those are mistakes, not style. Do NOT copy them.',
+  'Everything else about how these emails are built, you do copy.'
+].join('\n');
+
 function exemplarBlock(exemplars) {
   if (!Array.isArray(exemplars) || exemplars.length === 0) {
     return 'No sample emails are available. Follow the profile alone, conservatively.';
   }
 
   return [
-    `Here are ${exemplars.length} real emails this person wrote. Match them mechanically:`,
+    `Here are ${exemplars.length} real emails this person wrote. Match them mechanically:` +
+      `\n${EXEMPLAR_TYPO_WARNING}`,
     ...exemplars.map((body, index) => `--- REAL EMAIL ${index + 1} ---\n${body}`)
   ].join('\n\n');
 }
@@ -113,6 +162,8 @@ export function buildDraftUserPrompt({
     'STYLE PROFILE (JSON):',
     JSON.stringify(profileJson ?? {}, null, 2),
     '',
+    SPELLING_CARVE_OUT,
+    '',
     exemplarBlock(exemplars),
     '',
     'RECIPIENT:',
@@ -129,6 +180,26 @@ export function buildDraftUserPrompt({
   ].join('\n');
 }
 
+/**
+ * Without this the scorer treats a correctly spelled draft as a deviation from a
+ * profile that catalogues the writer's typos, and the sub-80 retry then feeds the
+ * typo back in as a "violation to fix" (Decisions, 2026-08-12). Carried in the
+ * user prompt too, next to the profile that may be dirty.
+ */
+export const FIDELITY_SPELLING_RULE = [
+  'CORRECT SPELLING IS NEVER A VIOLATION. The sample emails are raw unedited mail and',
+  'the profile may even list the writer\'s typos as traits. Ignore both on this point.',
+  'A draft that spells every word the standard way, picks the right homophone, and',
+  'capitalizes proper nouns consistently ("AI", one spelling of a product name) is',
+  'right. Never report that as a mismatch and never lower the score for it.',
+  '',
+  'Their loose syntax is the opposite case — it IS the voice. Comma splices, run-ons',
+  'joined by a comma, commas where a period would be standard, fragments, missing full',
+  'stops, minimal punctuation, deliberate lowercase and ALL-CAPS emphasis: judge those',
+  'on how closely the draft matches the person, and mark a draft DOWN when it flattens',
+  'them into standard prose.'
+].join('\n');
+
 export const FIDELITY_SYSTEM_PROMPT = [
   'You score how closely a draft email matches one person\'s real writing.',
   '',
@@ -140,6 +211,8 @@ export const FIDELITY_SYSTEM_PROMPT = [
   '5. punctuation, capitalization quirks, contractions, vocabulary register',
   '',
   'Judge mechanics, not quality. A well-written email in the wrong voice scores low.',
+  '',
+  FIDELITY_SPELLING_RULE,
   '',
   'Return ONLY this JSON object, no prose and no markdown fences:',
   '{"score_0to100": 0, "violations": ["specific, actionable mismatches"]}'
@@ -163,6 +236,8 @@ export const PERSONALIZE_SYSTEM_PROMPT = [
   'sentence lengths, fragments, paragraph sizes, punctuation, capitalization quirks,',
   'contractions, vocabulary register. Your sentences must be indistinguishable from',
   'the ones already in the letter.',
+  '',
+  SPELLING_CARVE_OUT,
   '',
   'Never do anything in the profile\'s "never_does" list — that list is the whole',
   'anti-AI-slop filter. Honour every entry in "learned_corrections" too.',
@@ -188,6 +263,8 @@ export function buildPersonalizeUserPrompt({
     'STYLE PROFILE (JSON):',
     JSON.stringify(profileJson ?? {}, null, 2),
     '',
+    SPELLING_CARVE_OUT,
+    '',
     exemplarBlock(exemplars),
     '',
     'RECIPIENT:',
@@ -206,6 +283,8 @@ export function buildFidelityUserPrompt({ profileJson, exemplars, draft }) {
   return [
     'STYLE PROFILE (JSON):',
     JSON.stringify(profileJson ?? {}, null, 2),
+    '',
+    FIDELITY_SPELLING_RULE,
     '',
     exemplarBlock(exemplars),
     '',
