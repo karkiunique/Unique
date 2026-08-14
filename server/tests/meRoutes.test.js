@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 /**
  * GET and PATCH /api/me — the sign-off name (Decisions, 2026-08-13).
@@ -62,6 +63,14 @@ function logLines() {
   return [...logger.info.mock.calls, ...logger.warn.mock.calls, ...logger.error.mock.calls];
 }
 
+// One server for the whole file: 16 requests, well inside the app's 100-per-60s
+// rate limit. See helpers/testServer.js for why per-request binds were a problem.
+const httpRequest = useSharedTestServer(createApp);
+
+function authed(method, path) {
+  return httpRequest(method, path).set('Authorization', TOKEN);
+}
+
 beforeEach(() => {
   queries = [];
   answer = { data: { full_name: NAME }, error: null };
@@ -82,7 +91,7 @@ beforeEach(() => {
 
 describe('GET /api/me', () => {
   it('returns the signed-in user with their sign-off name', async () => {
-    const res = await request(createApp()).get('/api/me').set('Authorization', TOKEN);
+    const res = await authed('get', '/api/me');
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ user: { id: OWNER, email: EMAIL, full_name: NAME } });
@@ -95,7 +104,7 @@ describe('GET /api/me', () => {
   it('answers null for an account that has no name yet', async () => {
     answer = { data: null, error: null };
 
-    const res = await request(createApp()).get('/api/me').set('Authorization', TOKEN);
+    const res = await authed('get', '/api/me');
 
     expect(res.status).toBe(200);
     expect(res.body.user.full_name).toBeNull();
@@ -104,7 +113,7 @@ describe('GET /api/me', () => {
   it('still answers when the name lookup fails, rather than 500ing the page', async () => {
     answer = { data: null, error: { message: 'connection reset' } };
 
-    const res = await request(createApp()).get('/api/me').set('Authorization', TOKEN);
+    const res = await authed('get', '/api/me');
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(OWNER);
@@ -112,7 +121,7 @@ describe('GET /api/me', () => {
   });
 
   it('401s without a token', async () => {
-    const res = await request(createApp()).get('/api/me');
+    const res = await httpRequest('get', '/api/me');
 
     expect(res.status).toBe(401);
     expect(queries).toHaveLength(0);
@@ -121,10 +130,7 @@ describe('GET /api/me', () => {
 
 describe('PATCH /api/me', () => {
   it('saves the name on the caller\'s own row', async () => {
-    const res = await request(createApp())
-      .patch('/api/me')
-      .set('Authorization', TOKEN)
-      .send({ full_name: NAME });
+    const res = await authed('patch', '/api/me').send({ full_name: NAME });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ user: { id: OWNER, full_name: NAME } });
@@ -141,10 +147,11 @@ describe('PATCH /api/me', () => {
    * not merely overridden later, where a future refactor could reorder it back.
    */
   it('ignores any owner named in the body and writes the token\'s user', async () => {
-    const res = await request(createApp())
-      .patch('/api/me')
-      .set('Authorization', TOKEN)
-      .send({ id: STRANGER, user_id: STRANGER, full_name: NAME });
+    const res = await authed('patch', '/api/me').send({
+      id: STRANGER,
+      user_id: STRANGER,
+      full_name: NAME
+    });
 
     expect(res.status).toBe(200);
     expect(queries[0].filters).toEqual({ id: OWNER });
@@ -153,7 +160,7 @@ describe('PATCH /api/me', () => {
   });
 
   it('401s without a token, and writes nothing', async () => {
-    const res = await request(createApp()).patch('/api/me').send({ full_name: NAME });
+    const res = await httpRequest('patch', '/api/me').send({ full_name: NAME });
 
     expect(res.status).toBe(401);
     expect(queries).toHaveLength(0);
@@ -163,10 +170,7 @@ describe('PATCH /api/me', () => {
     for (const full_name of [undefined, '', '   ', null, 42]) {
       queries = [];
 
-      const res = await request(createApp())
-        .patch('/api/me')
-        .set('Authorization', TOKEN)
-        .send({ full_name });
+      const res = await authed('patch', '/api/me').send({ full_name });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/name/i);
@@ -175,10 +179,7 @@ describe('PATCH /api/me', () => {
   });
 
   it('400s a name past the length cap', async () => {
-    const res = await request(createApp())
-      .patch('/api/me')
-      .set('Authorization', TOKEN)
-      .send({ full_name: 'a'.repeat(500) });
+    const res = await authed('patch', '/api/me').send({ full_name: 'a'.repeat(500) });
 
     expect(res.status).toBe(400);
     expect(queries).toHaveLength(0);
@@ -187,24 +188,16 @@ describe('PATCH /api/me', () => {
   it('404s when the profile row is missing', async () => {
     answer = { data: null, error: null };
 
-    const res = await request(createApp())
-      .patch('/api/me')
-      .set('Authorization', TOKEN)
-      .send({ full_name: NAME });
+    const res = await authed('patch', '/api/me').send({ full_name: NAME });
 
     expect(res.status).toBe(404);
   });
 
   it('never logs the name, on the happy path or the failure path', async () => {
-    await request(createApp()).patch('/api/me').set('Authorization', TOKEN).send({
-      full_name: NAME
-    });
+    await authed('patch', '/api/me').send({ full_name: NAME });
 
     answer = { data: null, error: { message: `could not write ${NAME}` } };
-    const failed = await request(createApp())
-      .patch('/api/me')
-      .set('Authorization', TOKEN)
-      .send({ full_name: NAME });
+    const failed = await authed('patch', '/api/me').send({ full_name: NAME });
 
     expect(failed.status).toBe(500);
     // A 5xx from the driver never echoes its message either.

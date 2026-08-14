@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 /**
  * The /api/campaigns routes: mounted, authenticated, and strict about what they
@@ -133,8 +134,12 @@ function httpError(status, message) {
   return err;
 }
 
+// One server for the whole file. Every request below goes through `send`, so the
+// suite binds a single port rather than one per request — see helpers/testServer.js.
+const send = useSharedTestServer(createApp);
+
 function authed(method, path) {
-  return request(createApp())[method](path).set('Authorization', TOKEN);
+  return send(method, path).set('Authorization', TOKEN);
 }
 
 beforeEach(() => {
@@ -169,17 +174,19 @@ beforeEach(() => {
 
 describe('campaign routes — authentication', () => {
   it('401s on every campaign route without a token', async () => {
-    const app = createApp();
+    const routes = [
+      ['post', '/api/campaigns'],
+      ['get', '/api/campaigns'],
+      ['get', `/api/campaigns/${CAMPAIGN_ID}`],
+      ['patch', `/api/campaigns/${CAMPAIGN_ID}`]
+    ];
 
-    const responses = await Promise.all([
-      request(app).post('/api/campaigns'),
-      request(app).get('/api/campaigns'),
-      request(app).get(`/api/campaigns/${CAMPAIGN_ID}`),
-      request(app).patch(`/api/campaigns/${CAMPAIGN_ID}`)
-    ]);
+    // Sequential, not concurrent: this asserts auth, not concurrency, and four
+    // simultaneous ephemeral binds is what made it flake.
+    for (const [method, path] of routes) {
+      const res = await send(method, path);
 
-    for (const res of responses) {
-      expect(res.status).toBe(401);
+      expect(res.status, `${method.toUpperCase()} ${path}`).toBe(401);
       expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
     }
 
@@ -320,9 +327,7 @@ describe('POST /api/campaigns/:id/leads', () => {
   });
 
   it('401s without a token, without reaching the service', async () => {
-    const res = await request(createApp())
-      .post(`/api/campaigns/${CAMPAIGN_ID}/leads`)
-      .send({ rows: ROWS });
+    const res = await send('post', `/api/campaigns/${CAMPAIGN_ID}/leads`).send({ rows: ROWS });
 
     expect(res.status).toBe(401);
     expect(add).not.toHaveBeenCalled();
@@ -450,7 +455,7 @@ describe('POST /api/campaigns/:id/generate', () => {
   });
 
   it('401s without a token, without reaching the service', async () => {
-    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
+    const res = await send('post', `/api/campaigns/${CAMPAIGN_ID}/generate`).send({});
 
     expect(res.status).toBe(401);
     expect(begin).not.toHaveBeenCalled();
@@ -464,7 +469,7 @@ describe('POST /api/campaigns/:id/generate', () => {
    * and `app.set('strict routing')` would change this matching silently.
    */
   it('401s on the trailing-slash variant too, without reaching the service', async () => {
-    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/generate/`).send({});
+    const res = await send('post', `/api/campaigns/${CAMPAIGN_ID}/generate/`).send({});
 
     expect(res.status).toBe(401);
     expect(begin).not.toHaveBeenCalled();
@@ -550,7 +555,7 @@ describe('POST /api/campaigns/:id/clarify', () => {
   });
 
   it('401s without a token, without reaching the service', async () => {
-    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/clarify`).send({});
+    const res = await send('post', `/api/campaigns/${CAMPAIGN_ID}/clarify`).send({});
 
     expect(res.status).toBe(401);
     expect(clarify).not.toHaveBeenCalled();
@@ -558,7 +563,7 @@ describe('POST /api/campaigns/:id/clarify', () => {
 
   /** Same trailing-slash variant this repo has been bitten by before. */
   it('401s on the trailing-slash variant too', async () => {
-    const res = await request(createApp()).post(`/api/campaigns/${CAMPAIGN_ID}/clarify/`).send({});
+    const res = await send('post', `/api/campaigns/${CAMPAIGN_ID}/clarify/`).send({});
 
     expect(res.status).toBe(401);
     expect(clarify).not.toHaveBeenCalled();

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 /**
  * The three outcomes of POST /api/unsubscribe/:token — 'unsubscribed',
@@ -92,6 +93,11 @@ function unsubscribesTable() {
   };
 }
 
+// One server for the whole file: 8 requests, well inside the app's 100-per-60s
+// rate limit. The idempotency tests below need two calls against the SAME app,
+// which this gives them by construction — see helpers/testServer.js.
+const httpRequest = useSharedTestServer(createApp);
+
 beforeEach(() => {
   envBackup = process.env.UNSUB_SECRET;
   process.env.UNSUB_SECRET = SECRET;
@@ -113,7 +119,7 @@ describe('POST /api/unsubscribe/:token — outcome status', () => {
   it("returns status 'unsubscribed' on the first call", async () => {
     const token = signToken({ u: USER_ID, e: RECIPIENT });
 
-    const res = await request(createApp()).post(`/api/unsubscribe/${token}`);
+    const res = await httpRequest('post', `/api/unsubscribe/${token}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'unsubscribed' });
@@ -122,10 +128,9 @@ describe('POST /api/unsubscribe/:token — outcome status', () => {
 
   it("returns status 'already' on a second call and creates no duplicate row", async () => {
     const token = signToken({ u: USER_ID, e: RECIPIENT });
-    const app = createApp();
 
-    const first = await request(app).post(`/api/unsubscribe/${token}`);
-    const second = await request(app).post(`/api/unsubscribe/${token}`);
+    const first = await httpRequest('post', `/api/unsubscribe/${token}`);
+    const second = await httpRequest('post', `/api/unsubscribe/${token}`);
 
     expect(first.body).toEqual({ status: 'unsubscribed' });
     expect(second.status).toBe(200);
@@ -134,17 +139,18 @@ describe('POST /api/unsubscribe/:token — outcome status', () => {
   });
 
   it('treats the same address in different case as already unsubscribed', async () => {
-    const app = createApp();
-
-    await request(app).post(`/api/unsubscribe/${signToken({ u: USER_ID, e: RECIPIENT })}`);
-    const res = await request(app).post(`/api/unsubscribe/${signToken({ u: USER_ID, e: 'Sam@Corp.com' })}`);
+    await httpRequest('post', `/api/unsubscribe/${signToken({ u: USER_ID, e: RECIPIENT })}`);
+    const res = await httpRequest(
+      'post',
+      `/api/unsubscribe/${signToken({ u: USER_ID, e: 'Sam@Corp.com' })}`
+    );
 
     expect(res.body).toEqual({ status: 'already' });
     expect(rows).toHaveLength(1);
   });
 
   it('400s on an invalid token and writes nothing', async () => {
-    const res = await request(createApp()).post('/api/unsubscribe/not-a-real-token');
+    const res = await httpRequest('post', '/api/unsubscribe/not-a-real-token');
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/invalid/i);
@@ -153,10 +159,9 @@ describe('POST /api/unsubscribe/:token — outcome status', () => {
 
   it('never logs the recipient address, on either outcome', async () => {
     const token = signToken({ u: USER_ID, e: RECIPIENT });
-    const app = createApp();
 
-    await request(app).post(`/api/unsubscribe/${token}`);
-    await request(app).post(`/api/unsubscribe/${token}`);
+    await httpRequest('post', `/api/unsubscribe/${token}`);
+    await httpRequest('post', `/api/unsubscribe/${token}`);
 
     const calls = [
       ...logger.info.mock.calls,

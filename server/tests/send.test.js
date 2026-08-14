@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 const { oauthClient, gmailApi, OAuth2, gmailFactory } = vi.hoisted(() => {
   const oauthClient = {
@@ -138,6 +139,15 @@ function mimeBody(mime) {
 function sentMime() {
   const raw = gmailApi.users.messages.send.mock.calls[0][0].requestBody.raw;
   return Buffer.from(raw, 'base64url').toString('utf8');
+}
+
+// One server for the whole file: 36 requests, comfortably inside the app's
+// 100-per-60s rate limit. Every HTTP call below goes through it, so the suite
+// binds one port rather than one per request — see helpers/testServer.js.
+const httpRequest = useSharedTestServer(createApp);
+
+function authed(method, path) {
+  return httpRequest(method, path).set(...AUTH_HEADER);
 }
 
 beforeEach(() => {
@@ -523,17 +533,14 @@ describe('POST /api/send — the confirmation gate', () => {
   });
 
   it('401s without a token', async () => {
-    const res = await request(createApp()).post('/api/send').send({ to: TO, confirmed: true });
+    const res = await httpRequest('post', '/api/send').send({ to: TO, confirmed: true });
 
     expect(res.status).toBe(401);
     expect(gmailApi.users.messages.send).not.toHaveBeenCalled();
   });
 
   it('400s when confirmed is omitted, and never calls Gmail send', async () => {
-    const res = await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY });
+    const res = await authed('post', '/api/send').send({ to: TO, subject: SUBJECT, body: BODY });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Explicit confirmation required before sending' });
@@ -541,10 +548,12 @@ describe('POST /api/send — the confirmation gate', () => {
   });
 
   it('400s when confirmed is false, and never calls Gmail send', async () => {
-    const res = await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: false });
+    const res = await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: false
+    });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Explicit confirmation required before sending' });
@@ -552,10 +561,12 @@ describe('POST /api/send — the confirmation gate', () => {
   });
 
   it("400s when confirmed is the string 'true' — strict boolean only", async () => {
-    const res = await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: 'true' });
+    const res = await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: 'true'
+    });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Explicit confirmation required before sending' });
@@ -566,10 +577,12 @@ describe('POST /api/send — the confirmation gate', () => {
     for (const confirmed of [1, 'yes', {}, ['true']]) {
       gmailApi.users.messages.send.mockClear();
 
-      const res = await request(createApp())
-        .post('/api/send')
-        .set(...AUTH_HEADER)
-        .send({ to: TO, subject: SUBJECT, body: BODY, confirmed });
+      const res = await authed('post', '/api/send').send({
+        to: TO,
+        subject: SUBJECT,
+        body: BODY,
+        confirmed
+      });
 
       expect(res.status).toBe(400);
       expect(gmailApi.users.messages.send).not.toHaveBeenCalled();
@@ -577,10 +590,12 @@ describe('POST /api/send — the confirmation gate', () => {
   });
 
   it('sends and returns the gmail ids when confirmed is exactly true', async () => {
-    const res = await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: true });
+    const res = await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: true
+    });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ messageId: 'msg-1', threadId: 'thr-1' });
@@ -588,10 +603,12 @@ describe('POST /api/send — the confirmation gate', () => {
   });
 
   it('sends exactly the subject and body it was given, unmodified', async () => {
-    await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: true });
+    await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: true
+    });
 
     const mime = sentMime();
 
@@ -608,10 +625,7 @@ describe('POST /api/send — the confirmation gate', () => {
     ];
 
     for (const [payload, message] of cases) {
-      const res = await request(createApp())
-        .post('/api/send')
-        .set(...AUTH_HEADER)
-        .send({ ...payload, confirmed: true });
+      const res = await authed('post', '/api/send').send({ ...payload, confirmed: true });
 
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ error: message });
@@ -636,10 +650,12 @@ describe('POST /api/send — the recovery action', () => {
   }
 
   async function postSend() {
-    return request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: true });
+    return authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: true
+    });
   }
 
   beforeEach(() => {
@@ -720,16 +736,18 @@ describe('POST /api/send/generate', () => {
   });
 
   it('401s without a token', async () => {
-    const res = await request(createApp()).post('/api/send/generate').send({ to: TO, goal: 'x' });
+    const res = await httpRequest('post', '/api/send/generate').send({ to: TO, goal: 'x' });
 
     expect(res.status).toBe(401);
   });
 
   it('returns the draft and NEVER calls gmail.users.messages.send', async () => {
-    const res = await request(createApp())
-      .post('/api/send/generate')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, recipientName: 'Sam', company: 'Corp', goal: 'ask for 15 minutes' });
+    const res = await authed('post', '/api/send/generate').send({
+      to: TO,
+      recipientName: 'Sam',
+      company: 'Corp',
+      goal: 'ask for 15 minutes'
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.subject).toBe(SUBJECT);
@@ -740,18 +758,14 @@ describe('POST /api/send/generate', () => {
   });
 
   it('400s without a recipient or a goal, and never drafts', async () => {
-    const missingTo = await request(createApp())
-      .post('/api/send/generate')
-      .set(...AUTH_HEADER)
-      .send({ goal: 'ask for 15 minutes' });
+    const missingTo = await authed('post', '/api/send/generate').send({
+      goal: 'ask for 15 minutes'
+    });
 
     expect(missingTo.status).toBe(400);
     expect(missingTo.body).toEqual({ error: 'A recipient email address is required' });
 
-    const missingGoal = await request(createApp())
-      .post('/api/send/generate')
-      .set(...AUTH_HEADER)
-      .send({ to: TO });
+    const missingGoal = await authed('post', '/api/send/generate').send({ to: TO });
 
     expect(missingGoal.status).toBe(400);
     expect(missingGoal.body).toEqual({ error: 'A goal for the email is required' });
@@ -774,7 +788,7 @@ describe('POST /api/send/verify-recipient', () => {
   });
 
   it('401s without a token, and never runs the check', async () => {
-    const res = await request(createApp()).post('/api/send/verify-recipient').send({ to: TO });
+    const res = await httpRequest('post', '/api/send/verify-recipient').send({ to: TO });
 
     expect(res.status).toBe(401);
     expect(verifyRecipient).not.toHaveBeenCalled();
@@ -784,10 +798,7 @@ describe('POST /api/send/verify-recipient', () => {
     const warn = { status: 'warn', reasons: ['role_address'], hasMx: true };
     verifyRecipient.mockResolvedValue(warn);
 
-    const res = await request(createApp())
-      .post('/api/send/verify-recipient')
-      .set(...AUTH_HEADER)
-      .send({ to: 'info@corp.com' });
+    const res = await authed('post', '/api/send/verify-recipient').send({ to: 'info@corp.com' });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(warn);
@@ -795,10 +806,7 @@ describe('POST /api/send/verify-recipient', () => {
   });
 
   it('marks the response no-store — a per-recipient verdict is not cacheable', async () => {
-    const res = await request(createApp())
-      .post('/api/send/verify-recipient')
-      .set(...AUTH_HEADER)
-      .send({ to: TO });
+    const res = await authed('post', '/api/send/verify-recipient').send({ to: TO });
 
     expect(res.headers['cache-control']).toContain('no-store');
   });
@@ -807,18 +815,13 @@ describe('POST /api/send/verify-recipient', () => {
     const payloads = [{}, { to: '' }, { to: '   ' }, { to: 42 }, { to: null }, { to: ['a@b.com'] }];
 
     for (const payload of payloads) {
-      const res = await request(createApp())
-        .post('/api/send/verify-recipient')
-        .set(...AUTH_HEADER)
-        .send(payload);
+      const res = await authed('post', '/api/send/verify-recipient').send(payload);
 
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ error: 'A recipient email address is required' });
     }
 
-    const noBody = await request(createApp())
-      .post('/api/send/verify-recipient')
-      .set(...AUTH_HEADER);
+    const noBody = await authed('post', '/api/send/verify-recipient');
 
     expect(noBody.status).toBe(400);
     expect(verifyRecipient).not.toHaveBeenCalled();
@@ -827,10 +830,7 @@ describe('POST /api/send/verify-recipient', () => {
   it('keeps the recipient address — and its domain — out of every log line', async () => {
     verifyRecipient.mockResolvedValue({ status: 'invalid', reasons: ['no_mx'], hasMx: false });
 
-    await request(createApp())
-      .post('/api/send/verify-recipient')
-      .set(...AUTH_HEADER)
-      .send({ to: TO });
+    await authed('post', '/api/send/verify-recipient').send({ to: TO });
 
     const calls = [
       ...logger.info.mock.calls,
@@ -854,10 +854,7 @@ describe('POST /api/send/verify-recipient', () => {
   });
 
   it('persists nothing — no table is touched on this path', async () => {
-    await request(createApp())
-      .post('/api/send/verify-recipient')
-      .set(...AUTH_HEADER)
-      .send({ to: TO });
+    await authed('post', '/api/send/verify-recipient').send({ to: TO });
 
     // requireAuth verifies the JWT via auth.getUser; that is not persistence.
     // A `.from(...)` call would be, and there is none.
@@ -865,10 +862,7 @@ describe('POST /api/send/verify-recipient', () => {
   });
 
   it('cannot send: gmail.users.messages.send is never reached', async () => {
-    await request(createApp())
-      .post('/api/send/verify-recipient')
-      .set(...AUTH_HEADER)
-      .send({ to: TO });
+    await authed('post', '/api/send/verify-recipient').send({ to: TO });
 
     expect(gmailApi.users.messages.send).not.toHaveBeenCalled();
   });
@@ -878,10 +872,12 @@ describe('send logging', () => {
   it('never logs the recipient, subject or body', async () => {
     mockConnectedGmail();
 
-    await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: true });
+    await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: true
+    });
 
     const calls = [
       ...logger.info.mock.calls,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 const { oauthClient, gmailApi, OAuth2, gmailFactory } = vi.hoisted(() => {
   const oauthClient = {
@@ -123,6 +124,14 @@ function mockConnectedGmail() {
   );
 }
 
+// One server for the whole file: 10 requests, well inside the app's 100-per-60s
+// rate limit. See helpers/testServer.js for why per-request binds were a problem.
+const httpRequest = useSharedTestServer(createApp);
+
+function authed(method, path) {
+  return httpRequest(method, path).set(...AUTH_HEADER);
+}
+
 beforeEach(() => {
   for (const key of ENV_KEYS) envBackup[key] = process.env[key];
 
@@ -165,7 +174,7 @@ describe('GET /api/voice/corpus-summary — auth', () => {
   it('401s without an Authorization header, and never touches Gmail', async () => {
     mockConnectedGmail();
 
-    const res = await request(createApp()).get(PATH);
+    const res = await httpRequest('get', PATH);
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
@@ -176,7 +185,7 @@ describe('GET /api/voice/corpus-summary — auth', () => {
     mockConnectedGmail();
     getUser.mockResolvedValue({ data: { user: null }, error: { message: 'bad jwt' } });
 
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     expect(res.status).toBe(401);
     expect(gmailApi.users.messages.list).not.toHaveBeenCalled();
@@ -189,7 +198,7 @@ describe('GET /api/voice/corpus-summary — counts only', () => {
   });
 
   it('returns exactly the five counts and nothing else', async () => {
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     expect(res.status).toBe(200);
     expect(Object.keys(res.body).sort()).toEqual([
@@ -203,7 +212,7 @@ describe('GET /api/voice/corpus-summary — counts only', () => {
   });
 
   it('counts the corpus the voice builder would receive, skipping empty bodies', async () => {
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     // m-4 extracts to nothing, so it is not part of the corpus.
     expect(res.body.messageCount).toBe(3);
@@ -215,14 +224,14 @@ describe('GET /api/voice/corpus-summary — counts only', () => {
   });
 
   it('flags the same rows the review UI would flag', async () => {
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     // The quoted one cleaned up properly; the plain and the HTML one did not.
     expect(res.body.suspectCount).toBe(2);
   });
 
   it('returns no body, subject or recipient text at any level', async () => {
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     const serialized = JSON.stringify(res.body);
     for (const fragment of CONTENT_FRAGMENTS) {
@@ -235,13 +244,13 @@ describe('GET /api/voice/corpus-summary — counts only', () => {
   });
 
   it('sets Cache-Control: no-store', async () => {
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('logs counts only, never content', async () => {
-    await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    await authed('get', PATH);
 
     const calls = [
       ...logger.info.mock.calls,
@@ -267,7 +276,7 @@ describe('GET /api/voice/corpus-summary — failures', () => {
   it('400s with {error} when Gmail is not connected', async () => {
     mockProfileRead({ data: { gmail_refresh_token_enc: null }, error: null });
 
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Gmail is not connected' });
@@ -276,7 +285,7 @@ describe('GET /api/voice/corpus-summary — failures', () => {
   it('500s with a generic {error} when the profile read fails', async () => {
     mockProfileRead({ data: null, error: { message: 'db down' } });
 
-    const res = await request(createApp()).get(PATH).set(...AUTH_HEADER);
+    const res = await authed('get', PATH);
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'Could not read your sent mail' });

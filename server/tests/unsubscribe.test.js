@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 // Only the two factories the googleapis mock needs are bound out here: this
 // suite exercises no Gmail call, it just keeps the real SDK out of the app graph.
@@ -74,6 +75,10 @@ function withSecret(secret, fn) {
     process.env.UNSUB_SECRET = previous;
   }
 }
+
+// One server for the whole file: 7 requests, well inside the app's 100-per-60s
+// rate limit. See helpers/testServer.js for why per-request binds were a problem.
+const httpRequest = useSharedTestServer(createApp);
 
 beforeEach(() => {
   for (const key of ENV_KEYS) envBackup[key] = process.env[key];
@@ -157,7 +162,7 @@ describe('POST /api/unsubscribe/:token', () => {
   it('is public — it records the unsubscribe with no Authorization header', async () => {
     const token = signToken({ u: USER_ID, e: RECIPIENT });
 
-    const res = await request(createApp()).post(`/api/unsubscribe/${token}`);
+    const res = await httpRequest('post', `/api/unsubscribe/${token}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'unsubscribed' });
@@ -167,7 +172,7 @@ describe('POST /api/unsubscribe/:token', () => {
   it('inserts the user id and email carried by the token, on conflict do nothing', async () => {
     const token = signToken({ u: USER_ID, e: 'Sam@Corp.com' });
 
-    await request(createApp()).post(`/api/unsubscribe/${token}`);
+    await httpRequest('post', `/api/unsubscribe/${token}`);
 
     expect(supabaseFrom).toHaveBeenCalledWith('unsubscribes');
     expect(upsert).toHaveBeenCalledWith(
@@ -177,7 +182,7 @@ describe('POST /api/unsubscribe/:token', () => {
   });
 
   it('400s on an invalid token and writes nothing', async () => {
-    const res = await request(createApp()).post('/api/unsubscribe/not-a-real-token');
+    const res = await httpRequest('post', '/api/unsubscribe/not-a-real-token');
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/invalid/i);
@@ -187,7 +192,7 @@ describe('POST /api/unsubscribe/:token', () => {
   it('400s on a token signed with a different secret', async () => {
     const foreign = withSecret(OTHER_SECRET, () => signToken({ u: USER_ID, e: RECIPIENT }));
 
-    const res = await request(createApp()).post(`/api/unsubscribe/${foreign}`);
+    const res = await httpRequest('post', `/api/unsubscribe/${foreign}`);
 
     expect(res.status).toBe(400);
     expect(upsert).not.toHaveBeenCalled();
@@ -196,7 +201,7 @@ describe('POST /api/unsubscribe/:token', () => {
   it('400s when the signed payload is missing the user id or email', async () => {
     const noEmail = signToken({ u: USER_ID });
 
-    const res = await request(createApp()).post(`/api/unsubscribe/${noEmail}`);
+    const res = await httpRequest('post', `/api/unsubscribe/${noEmail}`);
 
     expect(res.status).toBe(400);
     expect(upsert).not.toHaveBeenCalled();
@@ -206,7 +211,7 @@ describe('POST /api/unsubscribe/:token', () => {
     upsert.mockResolvedValue({ data: null, error: { message: 'db down' } });
     const token = signToken({ u: USER_ID, e: RECIPIENT });
 
-    const res = await request(createApp()).post(`/api/unsubscribe/${token}`);
+    const res = await httpRequest('post', `/api/unsubscribe/${token}`);
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'Could not record the unsubscribe' });
@@ -215,7 +220,7 @@ describe('POST /api/unsubscribe/:token', () => {
   it('never logs the unsubscribed address', async () => {
     const token = signToken({ u: USER_ID, e: RECIPIENT });
 
-    await request(createApp()).post(`/api/unsubscribe/${token}`);
+    await httpRequest('post', `/api/unsubscribe/${token}`);
 
     const calls = [
       ...logger.info.mock.calls,

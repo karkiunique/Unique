@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer, withFreshServer } from './helpers/testServer.js';
 
 const { getUser, supabaseFrom } = vi.hoisted(() => ({ getUser: vi.fn(), supabaseFrom: vi.fn() }));
 
@@ -29,6 +30,11 @@ function emptyProfilesTable() {
   return chain;
 }
 
+// One server for the whole file: 13 of the 14 requests below go through it, well
+// inside the app's 100-per-60s rate limit. The exception is the APP_URL CORS test,
+// which has to build its own app — see the comment there.
+const httpRequest = useSharedTestServer(createApp);
+
 beforeEach(() => {
   getUser.mockReset();
   supabaseFrom.mockReset();
@@ -40,7 +46,7 @@ beforeEach(() => {
 
 describe('GET /api/health', () => {
   it('is public and returns ok', async () => {
-    const res = await request(createApp()).get('/api/health');
+    const res = await httpRequest('get', '/api/health');
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
@@ -49,7 +55,7 @@ describe('GET /api/health', () => {
   });
 
   it('sets helmet security headers', async () => {
-    const res = await request(createApp()).get('/api/health');
+    const res = await httpRequest('get', '/api/health');
 
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['x-powered-by']).toBeUndefined();
@@ -58,7 +64,7 @@ describe('GET /api/health', () => {
 
 describe('GET /api/me', () => {
   it('401s without a token', async () => {
-    const res = await request(createApp()).get('/api/me');
+    const res = await httpRequest('get', '/api/me');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
@@ -67,7 +73,7 @@ describe('GET /api/me', () => {
   it('401s with an invalid token', async () => {
     getUser.mockResolvedValue({ data: { user: null }, error: { message: 'bad jwt' } });
 
-    const res = await request(createApp()).get('/api/me').set('Authorization', 'Bearer nope');
+    const res = await httpRequest('get', '/api/me').set('Authorization', 'Bearer nope');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Invalid or expired token' });
@@ -79,7 +85,7 @@ describe('GET /api/me', () => {
       error: null
     });
 
-    const res = await request(createApp()).get('/api/me').set('Authorization', 'Bearer good.jwt');
+    const res = await httpRequest('get', '/api/me').set('Authorization', 'Bearer good.jwt');
 
     expect(res.status).toBe(200);
     // full_name is the sign-off name (Decisions, 2026-08-13): null here because
@@ -92,7 +98,7 @@ describe('GET /api/me', () => {
 
 describe('POST /api/gmail/connect', () => {
   it('401s without a token', async () => {
-    const res = await request(createApp()).post('/api/gmail/connect');
+    const res = await httpRequest('post', '/api/gmail/connect');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
@@ -101,14 +107,14 @@ describe('POST /api/gmail/connect', () => {
 
 describe('GET /api/gmail/callback', () => {
   it('is public but 400s without a code and state', async () => {
-    const res = await request(createApp()).get('/api/gmail/callback');
+    const res = await httpRequest('get', '/api/gmail/callback');
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Missing authorization code or state' });
   });
 
   it('400s when Google reports an error', async () => {
-    const res = await request(createApp()).get('/api/gmail/callback?error=access_denied');
+    const res = await httpRequest('get', '/api/gmail/callback?error=access_denied');
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Google denied the authorization request' });
@@ -117,14 +123,14 @@ describe('GET /api/gmail/callback', () => {
 
 describe('voice routes', () => {
   it('401s on POST /api/voice/generate without a token', async () => {
-    const res = await request(createApp()).post('/api/voice/generate');
+    const res = await httpRequest('post', '/api/voice/generate');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
   });
 
   it('401s on GET /api/voice without a token', async () => {
-    const res = await request(createApp()).get('/api/voice');
+    const res = await httpRequest('get', '/api/voice');
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
@@ -133,15 +139,14 @@ describe('voice routes', () => {
 
 describe('app hardening', () => {
   it('returns JSON {error} for unknown routes', async () => {
-    const res = await request(createApp()).get('/api/does-not-exist');
+    const res = await httpRequest('get', '/api/does-not-exist');
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Not found' });
   });
 
   it('returns 400 {error} for malformed JSON bodies', async () => {
-    const res = await request(createApp())
-      .post('/api/me')
+    const res = await httpRequest('post', '/api/me')
       .set('Content-Type', 'application/json')
       .send('{"broken":');
 
@@ -150,23 +155,36 @@ describe('app hardening', () => {
   });
 
   it('does not send CORS headers to a disallowed origin', async () => {
-    const res = await request(createApp())
-      .get('/api/health')
-      .set('Origin', 'https://evil.example.com');
+    const res = await httpRequest('get', '/api/health').set('Origin', 'https://evil.example.com');
 
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 
+  /**
+   * The only test here that must build its own app: CORS reads APP_URL once, at
+   * app-construction time. Routed through the shared server it would prove nothing
+   * — that app was built before this test set the variable. `withFreshServer` still
+   * constructs it after the assignment below, on a single port it always closes.
+   *
+   * The origin below MUST stay a non-default value. app.js falls back to
+   * DEFAULT_APP_URL ('http://localhost:5173') when APP_URL is unset, and APP_URL is
+   * unset under vitest — so asserting the default would pass even if the assignment
+   * below were deleted or the app were built before it. Only an origin the fallback
+   * cannot produce proves APP_URL was actually read, at the right moment.
+   */
   it('allows the configured APP_URL origin', async () => {
+    const configuredOrigin = 'https://app.example.com';
     const previous = process.env.APP_URL;
-    process.env.APP_URL = 'http://localhost:5173';
+    process.env.APP_URL = configuredOrigin;
 
-    const res = await request(createApp())
-      .get('/api/health')
-      .set('Origin', 'http://localhost:5173');
+    try {
+      await withFreshServer(createApp, async (send) => {
+        const res = await send('get', '/api/health').set('Origin', configuredOrigin);
 
-    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
-
-    process.env.APP_URL = previous;
+        expect(res.headers['access-control-allow-origin']).toBe(configuredOrigin);
+      });
+    } finally {
+      process.env.APP_URL = previous;
+    }
   });
 });
