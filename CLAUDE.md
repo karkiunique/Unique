@@ -341,6 +341,42 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 
 ## Decisions (dated — do not silently revisit)
 
+### 2026-08-13 — The compose fidelity floor is enforced server-side, by a signed score
+
+Closes **Phase 4 Blocker 2**. § 3 makes 80 a floor in the compose flow, not a warning — a draft below
+it must not reach the send button. That was enforced only in `web/src/components/FidelityGate.jsx`,
+so `routes/send.js` and `services/send.js` contained no mention of fidelity at all and a direct API
+call walked straight past it. Same class as the trailing-slash route that once sent mail with no
+confirmation: a UI-only gate.
+
+**How the server learns the score.** Three options, and the first two fail:
+- *Client sends the score* — forgeable, so it is not a gate at all.
+- *Server re-scores at send* — an extra model call on every send, and it can disagree with the score
+  the user was shown, so the UI and the gate would enforce different numbers.
+- **Server signs the score when it generates the draft, and verifies at send.** No extra call, not
+  forgeable, and the number enforced is exactly the number displayed. This is the same HMAC posture
+  as `lib/unsubscribe.js`.
+
+**The signed artifact binds the score TO THE BODY IT SCORED** — HMAC over `{bodyHash, score}`. At send
+the server hashes the submitted body and compares.
+
+**The escape hatch falls out of that binding rather than being bolted on.** § 3 says that once the user
+edits the body the score is stale and the gate lifts, because the words are then theirs. So:
+- hash matches and score < 80 → **reject**. This is the model's untouched draft, and it does not
+  sound like the user.
+- hash does not match → the body was edited → the score is stale → **allow**. Never trap a user
+  behind a score the model cannot reach.
+- no token at all → **allow**. A first send that never went through generation is a human writing
+  their own letter, which is the case this product is least entitled to block.
+
+**No new environment variable.** The signing key is derived from an existing secret with a distinct
+purpose label rather than adding config every deployment must set before sends keep working. Key
+separation is preserved by the label — a derived sub-key does not grant the parent's other uses.
+
+**This does not weaken the confirmation gate, which remains the primary control.** Confirmation
+verifies the exact rendered content a human approved; this verifies the model's fidelity to their
+voice. Two different questions, both server-side now.
+
 ### 2026-08-13 — The sign-off name is collected at signup, and enforced for everyone
 
 **The gap.** § 3 says every generated email must sign off as the user, by name, and treats a missing
