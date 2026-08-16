@@ -153,6 +153,23 @@ create table send_log (
 -- migration 003 adds gmail_message_id / gmail_thread_id so the register can show ONLY mail sent
 -- from Unique. IDs ONLY — never the subject, recipient or body. Those are fetched from Gmail on
 -- demand and never persisted. unique(user_id, gmail_message_id) keeps the write idempotent.
+
+create table waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,        -- stored lowercased+trimmed; unique makes a re-submit idempotent
+  seat bigint generated always as identity (start with 89) unique,
+  created_at timestamptz default now(),
+  invited_at timestamptz             -- null until the go-live onboarding mail goes out
+);
+-- migration 007 (landing/waitlist page). These people are NOT users — there is no profiles row and
+-- no auth.uid() — so the usual `user_id = auth.uid()` policy cannot apply. RLS is enabled with NO
+-- policy at all, which denies anon and authenticated outright; only the service-role server touches
+-- it. That is deliberately stricter than the other tables: nobody should be able to read the list.
+-- `seat` is an identity column, not a computed count: it is issued atomically by Postgres, so two
+-- concurrent signups can never be handed the same number, and a deleted row never re-issues a seat.
+-- The displayed count is max(seat) (88 when empty), so the counter and the seat are the same number
+-- by construction and cannot drift. The email is PII: never logged, never in an error message,
+-- never returned by any endpoint.
 -- RLS: enable on all tables; policy = user_id = auth.uid() for select/insert/update/delete.
 -- Server uses service-role key and bypasses RLS.
 --
@@ -187,6 +204,10 @@ POST /campaigns/:id/send     -> queue all approved leads, set status 'sending'
 POST /campaigns/:id/pause
 GET  /dashboard              -> aggregate stats
 POST /unsubscribe/:token     -> public route, no auth (token = signed lead id)
+POST /waitlist               -> public route, no auth. {email} -> {seat, count}. Landing page
+                                signup. Strict rate limit. (added 2026-08-15)
+GET  /waitlist/count         -> public route, no auth. {count} for the live counter. Never returns
+                                an address. (added 2026-08-15)
 ```
 
 ## Core implementation specs
@@ -268,6 +289,9 @@ DELIBERATE style (lowercase `i`, no caps after a dash), never for typos.
 - Export `enrichLead(lead)` and `researchLead(lead)` with the real Apollo/Tavily call shapes, but if API keys are absent return `{}` gracefully. MVP flow is CSV upload only.
 
 ## Frontend pages (web)
+0. **Landing / waitlist:** `/` — the PUBLIC entry point. Masthead → hero → five "how it works" steps →
+   waitlist block → footer. Sign-in is NOT shown until the visitor asks for it (see Decisions,
+   2026-08-15). No auth, no Supabase session required to render.
 1. **Onboarding:** signup/login (Supabase Auth) → "Connect Gmail" button → OAuth → "Building your voice profile…" progress screen (poll GET /voice) → show profile summary, allow "Regenerate."
 2. **Campaigns list:** cards with name, mode badge, sent/replied counts, status.
 3. **Campaign builder:** name → mode toggle (Voice / Template) → if template: textarea editor with a merge-var helper bar ({{first_name}} {{company}} {{title}} {{personalized}}) → CSV upload (papaparse client-side, map columns to fields, preview table) → "Generate emails" → progress bar (poll leads statuses).
@@ -340,6 +364,95 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-15 — Signups are closed in Supabase, not behind a code in the browser
+
+The product is not open, so nobody new gets an account. This is enforced in **Supabase ->
+Authentication -> Providers -> Email -> "Allow new users to sign up", OFF**. Accounts are created by
+hand in the Supabase dashboard until launch. Everyone else belongs on the waitlist.
+
+**A client-side gate was built for this and then deleted, deliberately.** It asked for an owner code
+before rendering `/signin`. It worked and it was tested, and it was still the wrong tool: Vite inlines
+every `VITE_*` var into the bundle, so the code was readable in DevTools by anyone who looked - and
+had to be, since the page cannot check a code it does not hold. It bought a screen to maintain, a test
+suite to keep green, and a launch-day removal step, in exchange for stopping nobody who tried.
+
+**The rule it ran into is the one this file states everywhere else: a gate that runs in the browser is
+not a gate.** The Supabase toggle is enforced by a server we do not control and cannot be bypassed by
+reading our JavaScript. Same reasoning as the send-path and approval gates.
+
+**Do not rebuild the code gate.** If sign-in ever needs restricting beyond "signups off", the answer is
+server-side - an invite table with signed tokens, or an allowlist checked by `/server` - never a string
+compared in React.
+
+**Operational note:** turning signups off blocks US too. Create the accounts you need first, or add
+them later from the Supabase dashboard. `AuthPage` still offers its "No account yet ->" toggle; with
+signups off that path surfaces Supabase's own error. Left alone on purpose - it is honest, it is one
+toggle away from being correct again at launch, and hiding it would be a second thing to remember to
+undo.
+
+### 2026-08-15 — The landing page is the front door; sign-in is behind a click
+
+**Routing changed, and this is the load-bearing part.** `App.jsx` used to answer every signed-out
+request with `AuthPage`, so the first thing any visitor saw was a password box for a product they had
+not heard of. Now: `/` renders the landing page for a signed-out visitor, `/signin` renders `AuthPage`,
+and any *other* signed-out path also renders `AuthPage` — someone typing `/compose` is reaching for
+the app, so sign-in is the right answer there. Signed-in users are untouched: `/` still resolves to
+the app home, and `/signin` falls through to it rather than showing a login box to someone already
+logged in.
+
+**The waitlist stores addresses, which makes it the first PII table in the schema that has no owner.**
+Everything else is scoped `user_id = auth.uid()`; a waitlist signup is not a user and has no
+`auth.uid()`. So RLS is enabled with **no policy at all** — anon and authenticated are denied
+outright and only the service-role server reads it. Stricter than the rest of the schema, on purpose.
+
+**BOTH numbers on the page are COUNTED. Neither is read off the `seat` identity column.** The page
+states the number twice — "N already on the waitlist" at the top, "You're No. N" on the confirmation
+— and for a fresh joiner they must be equal. Getting there took three goes; do not undo any of them:
+
+1. **The counter is `88 + count(*)`, not `max(seat)`.** `INSERT ... ON CONFLICT DO NOTHING` calls
+   `nextval` **before** it detects the conflict, and sequences are non-transactional, so a repeat
+   submit that reaches the upsert **burns a number**. `max(seat)` then jumps by more than one for the
+   next real signup. A deleted row's seat is spent forever too, so `max(seat)` keeps counting
+   someone who left.
+2. **`joinWaitlist` looks the address up BEFORE inserting**, so a returning visitor never reaches the
+   upsert and never burns anything. The test asserts on the **absence of the write call**, not on the
+   response — a version that upserts anyway returns an identical body and is still wrong.
+3. **A person's number is their POSITION** — `88 + count(rows created at or before theirs)` — not
+   their `seat`. Guards 1 and 2 keep the sequence dense going forward but cannot repair a sequence
+   that has *already* gapped, and this one had: a real signup was shown "You're No. 93" under a
+   counter reading 91. Position is counted, so it cannot gap, and for the newest joiner it is the
+   same read as the counter — equal by construction rather than by luck.
+
+**The tradeoff, stated:** deleting an earlier row shifts everyone behind it down by one. That is the
+honest answer to "what number am I on this list", and beats a stable number that is visibly wrong.
+
+`seat` stays in the schema as the immutable record of join order (the go-live invite send wants it),
+but **nothing user-facing reads it.** Base 88 is a display offset, not a stored row.
+
+**Re-submitting an address is a success, not an error.** `unique(email)` plus an upsert returns the
+seat already held. A cold-email product that says "you're already on the list" in red text to someone
+trying to give it their email has misread the room — and distinguishing "new" from "repeat" in the
+response would leak whether an address is on the list to anyone who asks.
+
+**The email never appears in a log line, an error message, or any response body.** `POST /waitlist`
+returns `{seat, count}` and `GET /waitlist/count` returns `{count}`. Neither echoes the address back.
+This is the § Privacy rule applied to a table whose every row is PII.
+
+**The reply-rate numbers on the page are industry benchmarks, attributed, and are NOT ours.** The
+design handoff shipped "reply 2%" vs "reply 41%". Nothing supports 41% on a per-email basis, and it
+contradicts the ~1–5% this file already records under 2026-08-12. The page now shows **3% vs 11%**,
+both from the Instantly 2026 benchmark report (same denominator, replies ÷ emails sent), with a
+visible "industry benchmarks · 2025–26" label. **Never attribute a reply rate to Unique until we have
+measured one from real sends.** When we do, it will come from `replyWatcher`, and it will be ours to
+quote.
+
+**Still to build, deliberately not now:** the go-live onboarding mail to everyone on the list. That is
+bulk commercial email sent by *Unique*, not by a user through their own Gmail — a different path from
+everything in `/server` today. It needs a transactional provider (Resend/Postmark/SES), and it needs
+an unsubscribe: the 2026-08-06 decision drops the footer for 1:1 compose sends **only** and says to
+reinstate it for bulk. `waitlist.invited_at` exists so that send can be resumable and can never mail
+the same person twice.
 
 ### 2026-08-13 — The compose fidelity floor is enforced server-side, by a signed score
 
