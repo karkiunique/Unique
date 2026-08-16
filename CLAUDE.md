@@ -454,13 +454,21 @@ an unsubscribe: the 2026-08-06 decision drops the footer for 1:1 compose sends *
 reinstate it for bulk. `waitlist.invited_at` exists so that send can be resumable and can never mail
 the same person twice.
 
-### 2026-08-13 — The compose fidelity floor is enforced server-side, by a signed score
+### 2026-08-13 — How the compose fidelity floor WILL be enforced server-side (decided, NOT built)
 
-Closes **Phase 4 Blocker 2**. § 3 makes 80 a floor in the compose flow, not a warning — a draft below
-it must not reach the send button. That was enforced only in `web/src/components/FidelityGate.jsx`,
-so `routes/send.js` and `services/send.js` contained no mention of fidelity at all and a direct API
-call walked straight past it. Same class as the trailing-slash route that once sent mail with no
-confirmation: a UI-only gate.
+**STATUS: design only. Phase 4 Blocker 2 is still OPEN.** This entry decides the approach; no code
+implements it. `routes/send.js` and `services/send.js` contain no mention of fidelity, so the floor
+is still a UI-only gate and a direct API call still walks straight past it. `TODO.md` is the live
+status and says the same — if this entry and `TODO.md` ever disagree again, `TODO.md` and the code
+are right.
+
+An earlier version of this heading said "is enforced" and opened with "Closes Phase 4 Blocker 2",
+which was false and is exactly the kind of thing that gets a bypassed gate shipped: whoever opens
+Phase 4 reads the Decisions log, believes the floor is hardened, and builds the queue on top of it.
+
+§ 3 makes 80 a floor in the compose flow, not a warning — a draft below it must not reach the send
+button. That is enforced only in `web/src/components/FidelityGate.jsx`. Same class as the
+trailing-slash route that once sent mail with no confirmation: a UI-only gate.
 
 **How the server learns the score.** Three options, and the first two fail:
 - *Client sends the score* — forgeable, so it is not a gate at all.
