@@ -133,7 +133,11 @@ create table leads (
                                      -- generation, read by nothing until the adaptation loop exists.
                                      -- {opener_starter, cta_form, length_band, profile_version}.
                                      -- References the user's OWN profile entries — no new content class.
-  status text default 'pending' check (status in ('pending','generated','approved','queued','sent','replied','bounced','unsubscribed','failed')),
+  status text default 'pending' check (status in ('pending','generated','approved','queued','sent','replied','bounced','unsubscribed','failed','rejected')),
+                                     -- migration 009 adds 'rejected': the HUMAN declined this
+                                     -- letter. Distinct from 'failed', which means GENERATION broke
+                                     -- and which leadRegenerate treats as redraftable — reusing it
+                                     -- here would let the system redraft a letter a person refused.
   sent_at timestamptz, replied_at timestamptz,
   gmail_message_id text, gmail_thread_id text,
   created_at timestamptz default now()
@@ -263,9 +267,14 @@ GET  /waitlist/count         -> public route, no auth. {count} for the live coun
                                 an address. (added 2026-08-15)
 GET  /target                 -> the user's standing ICP, or null (added 2026-08-16)
 PUT  /target                 -> create or replace the standing ICP. One per user.
-GET  /queue                  -> today's drafts awaiting review: the leads the daily job delivered
-POST /leads/:id/reject       -> {reason, note?} record a rejection and set the lead 'failed'.
-                                Feeds targeting, never voice.
+GET  /queue                  -> drafts awaiting review from the daily job. NOT just today's: an
+                                unreviewed draft must not vanish at midnight. No bodies in the list
+                                (same LEAD_COLUMNS shape as campaigns) — the deck fetches each
+                                letter through GET /leads/:id, per the 2026-08-08 decision.
+POST /leads/:id/reject       -> {reason, note?} record a rejection and set the lead 'rejected'
+                                (migration 009). NOT 'failed': that means GENERATION failed and is
+                                in leadRegenerate's REDRAFTABLE_FROM, so it would make a letter the
+                                human declined eligible for redrafting. Feeds targeting, never voice.
 ```
 
 ## Core implementation specs
@@ -491,6 +500,14 @@ Hunter's shared credit pool fits better, if its terms allow.
 `lead_targets`. Structured fields drive the vendor query; `fit_notes` goes to the model for gate 7.
 Negative criteria (`exclude_domains`, `exclude_industries`) are part of the target, not an
 afterthought — excluding competitors and existing customers removes a whole class of wrong lead.
+
+**A rejected lead gets its own status, and this was got wrong once already.** The Stage 0 contract
+said `POST /leads/:id/reject` would set the lead `'failed'`. It must not: `'failed'` means
+*generation* failed, and `leadRegenerate.js` lists it in `REDRAFTABLE_FROM`, so a rejected lead would
+have been eligible for redrafting — the system quietly redrafting a letter a human declined. Migration
+009 adds `'rejected'`, which is in no redraftable set and is excluded from the queue. Caught by
+checking the contract against the code before building, which is the entire point of writing the
+contract first.
 
 **Rejection reasons are a THIRD learning loop and must stay separate.** `learned_corrections` learns
 how the user WRITES; the outcome-adaptation loop (2026-08-12) learns what GETS REPLIES; this learns

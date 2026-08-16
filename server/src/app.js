@@ -12,6 +12,8 @@ import leadRoutes from './routes/leads.js';
 import sendRoutes from './routes/send.js';
 import unsubscribeRoutes from './routes/unsubscribe.js';
 import waitlistRoutes from './routes/waitlist.js';
+import targetRoutes from './routes/target.js';
+import queueRoutes from './routes/queue.js';
 import devInspectRoutes from './routes/devInspect.js';
 import { devRoutesEnabled } from './lib/devOnly.js';
 import { logger } from './lib/logger.js';
@@ -63,6 +65,8 @@ export function createApp() {
   app.use('/api', sendRoutes);
   app.use('/api', unsubscribeRoutes);
   app.use('/api', waitlistRoutes);
+  app.use('/api', targetRoutes);
+  app.use('/api', queueRoutes);
 
   // Dev-only inspection routes. Checked here (not at module scope) so the gate is
   // re-evaluated per app instance; the router re-checks it on every request too.
