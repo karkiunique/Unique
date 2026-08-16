@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer, withFreshServer } from './helpers/testServer.js';
 
 const { oauthClient, gmailApi, OAuth2, gmailFactory } = vi.hoisted(() => {
   const oauthClient = {
@@ -113,6 +114,40 @@ function enableDevRoutes() {
   process.env.ENABLE_DEV_ROUTES = 'true';
 }
 
+/**
+ * app.js decides whether to MOUNT the dev router at construction time, so a shared
+ * server has to be built with the gate already on. The two variables are restored
+ * straight afterwards: what each request is gated by is the env each test sets in
+ * its own beforeEach, which the router re-checks on every call.
+ *
+ * The gating describe below does NOT use this — those tests are about the
+ * mount-time decision itself and must keep building their own app per test.
+ */
+function appWithDevRoutesMounted() {
+  const previous = {
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_DEV_ROUTES: process.env.ENABLE_DEV_ROUTES
+  };
+
+  enableDevRoutes();
+  try {
+    return createApp();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+// Shared by the two describes that exercise the route rather than the gate: 10
+// requests, well inside the app's 100-per-60s rate limit.
+const httpRequest = useSharedTestServer(appWithDevRoutesMounted);
+
+function authed(method, path) {
+  return httpRequest(method, path).set(...AUTH_HEADER);
+}
+
 beforeEach(() => {
   for (const key of ENV_KEYS) envBackup[key] = process.env[key];
 
@@ -152,12 +187,30 @@ afterEach(() => {
   }
 });
 
+/**
+ * The only describe here that still builds its own app, deliberately. Each test sets
+ * NODE_ENV / ENABLE_DEV_ROUTES and then asserts what app.js DID WITH THEM at
+ * construction. Routed through the shared server these would assert the router's
+ * per-request re-check instead, and the mount-time gate would stop being tested.
+ *
+ * `withFreshServer` builds the app after the env is set — same construction-time
+ * semantics as before — but binds one port per test instead of one per request.
+ */
 describe('GET /api/dev/ingest-preview — gating', () => {
   it('404s when ENABLE_DEV_ROUTES is unset', async () => {
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    await withFreshServer(createApp, async (send) => {
+      const res = await send('get', '/api/dev/ingest-preview').set(...AUTH_HEADER);
 
-    expect(res.status).toBe(404);
-    expect(res.body).toEqual({ error: 'Not found' });
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Not found' });
+      // Do not delete: the header is the ONLY discriminator between the two 404s.
+      // Both bodies are byte-identical, so status+body alone cannot tell "app.js
+      // never mounted the router" from "it mounted and the per-request re-check
+      // 404'd". devInspect.js sets Cache-Control: no-store at line 81, BEFORE its
+      // gate at line 85 — so a no-store here means the router was reached, i.e.
+      // mounted. Absent header = never mounted, which is what this test guards.
+      expect(res.headers['cache-control']).toBeUndefined();
+    });
   });
 
   it('404s in production even when ENABLE_DEV_ROUTES is true', async () => {
@@ -165,32 +218,41 @@ describe('GET /api/dev/ingest-preview — gating', () => {
     process.env.ENABLE_DEV_ROUTES = 'true';
     mockConnectedGmail();
 
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    await withFreshServer(createApp, async (send) => {
+      const res = await send('get', '/api/dev/ingest-preview').set(...AUTH_HEADER);
 
-    expect(res.status).toBe(404);
-    expect(res.body).toEqual({ error: 'Not found' });
-    expect(res.body.emails).toBeUndefined();
-    expect(gmailApi.users.messages.list).not.toHaveBeenCalled();
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Not found' });
+      expect(res.body.emails).toBeUndefined();
+      // As above: no Cache-Control proves the router was never mounted in
+      // production, not merely that its re-check refused the request.
+      expect(res.headers['cache-control']).toBeUndefined();
+      expect(gmailApi.users.messages.list).not.toHaveBeenCalled();
+    });
   });
 
   for (const value of ['false', '0', '1', 'TRUE', 'yes', '']) {
     it(`404s for ENABLE_DEV_ROUTES='${value}' (exact 'true' match only)`, async () => {
       process.env.ENABLE_DEV_ROUTES = value;
 
-      const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+      await withFreshServer(createApp, async (send) => {
+        const res = await send('get', '/api/dev/ingest-preview').set(...AUTH_HEADER);
 
-      expect(res.status).toBe(404);
-      expect(res.body).toEqual({ error: 'Not found' });
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual({ error: 'Not found' });
+      });
     });
   }
 
   it('401s without a token when enabled', async () => {
     enableDevRoutes();
 
-    const res = await request(createApp()).get('/api/dev/ingest-preview');
+    await withFreshServer(createApp, async (send) => {
+      const res = await send('get', '/api/dev/ingest-preview');
 
-    expect(res.status).toBe(401);
-    expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: 'Missing or malformed Authorization header' });
+    });
   });
 });
 
@@ -201,7 +263,7 @@ describe('GET /api/dev/ingest-preview — corpus', () => {
   });
 
   it('returns the summary counts for the corpus the voice builder would receive', async () => {
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
 
     expect(res.status).toBe(200);
     expect(res.body.emails).toHaveLength(3);
@@ -214,7 +276,7 @@ describe('GET /api/dev/ingest-preview — corpus', () => {
   });
 
   it('flags the quoted reply and signature it stripped', async () => {
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
     const email = res.body.emails[0];
 
     expect(email.index).toBe(0);
@@ -230,7 +292,7 @@ describe('GET /api/dev/ingest-preview — corpus', () => {
   });
 
   it('flags nothing removed for a clean body', async () => {
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
     const email = res.body.emails[1];
 
     expect(email.cleaned).toBe(PLAIN_RAW);
@@ -239,7 +301,7 @@ describe('GET /api/dev/ingest-preview — corpus', () => {
   });
 
   it('flags html markup that survived into the extracted text', async () => {
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
     const email = res.body.emails[2];
 
     expect(email.removed.html).toBe(true);
@@ -248,17 +310,13 @@ describe('GET /api/dev/ingest-preview — corpus', () => {
   });
 
   it('omits raw by default and includes it with ?includeRaw=1', async () => {
-    const withoutRaw = await request(createApp())
-      .get('/api/dev/ingest-preview')
-      .set(...AUTH_HEADER);
+    const withoutRaw = await authed('get', '/api/dev/ingest-preview');
 
     for (const email of withoutRaw.body.emails) {
       expect(email.raw).toBeUndefined();
     }
 
-    const withRaw = await request(createApp())
-      .get('/api/dev/ingest-preview?includeRaw=1')
-      .set(...AUTH_HEADER);
+    const withRaw = await authed('get', '/api/dev/ingest-preview?includeRaw=1');
 
     expect(withRaw.status).toBe(200);
     expect(withRaw.body.emails[0].raw).toBe(QUOTED_RAW);
@@ -266,13 +324,13 @@ describe('GET /api/dev/ingest-preview — corpus', () => {
   });
 
   it('sets Cache-Control: no-store so the corpus is never cached', async () => {
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
 
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('logs counts only, never bodies', async () => {
-    await request(createApp()).get('/api/dev/ingest-preview?includeRaw=1').set(...AUTH_HEADER);
+    await authed('get', '/api/dev/ingest-preview?includeRaw=1');
 
     const calls = [
       ...logger.info.mock.calls,
@@ -303,7 +361,7 @@ describe('GET /api/dev/ingest-preview — failures', () => {
   it('400s with {error} when Gmail is not connected', async () => {
     mockProfileRead({ data: { gmail_refresh_token_enc: null }, error: null });
 
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Gmail is not connected' });
@@ -312,7 +370,7 @@ describe('GET /api/dev/ingest-preview — failures', () => {
   it('500s with a generic {error} when the profile read fails', async () => {
     mockProfileRead({ data: null, error: { message: 'db down' } });
 
-    const res = await request(createApp()).get('/api/dev/ingest-preview').set(...AUTH_HEADER);
+    const res = await authed('get', '/api/dev/ingest-preview');
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'Could not load the ingestion preview' });

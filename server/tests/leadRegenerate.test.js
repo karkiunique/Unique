@@ -212,6 +212,30 @@ describe('regenerateLead', () => {
     expect(updated.edited_body).toBeNull();
   });
 
+  /**
+   * So does the old variant (migration 005). A redraft is not part of a batch, so
+   * it has no assigned opener — but leaving the previous letter's variant on the
+   * row would have the adaptation loop learn from a letter that no longer exists.
+   */
+  it('rewrites the variant on the same update, never leaving the old one behind', async () => {
+    seedCampaign();
+    const lead = seedLead({
+      variant_json: { opener_starter: 'saw that', cta_form: 'worth 15 minutes next week?' }
+    });
+
+    await regenerateLead(OWNER, lead.id);
+
+    const write = queriesOn('leads', 'update')[0];
+    expect(write.values.generated_body).toBe(NEW_DRAFT.body);
+    expect(write.values.variant_json).toEqual({
+      opener_starter: null,
+      cta_form: null,
+      length_band: null,
+      profile_version: null
+    });
+    expect(lead.variant_json.opener_starter).toBeNull();
+  });
+
   it("reuses the batch's drafting, with this user's voice and campaign", async () => {
     const campaign = seedCampaign();
     const lead = seedLead();

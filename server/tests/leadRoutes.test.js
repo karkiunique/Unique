@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 /**
  * The /api/leads routes: mounted, authenticated, and strict about what they
@@ -98,8 +99,12 @@ function httpError(status, message) {
   return err;
 }
 
+// One server for the whole file: 18 requests, well inside the app's 100-per-60s
+// rate limit. See helpers/testServer.js for why per-request binds were a problem.
+const httpRequest = useSharedTestServer(createApp);
+
 function authed(method, path) {
-  return request(createApp())[method](path).set('Authorization', TOKEN);
+  return httpRequest(method, path).set('Authorization', TOKEN);
 }
 
 beforeEach(() => {
@@ -124,12 +129,10 @@ beforeEach(() => {
 
 describe('lead routes — authentication', () => {
   it('401s on every lead route without a token, and reaches no service', async () => {
-    const app = createApp();
-
     const responses = await Promise.all([
-      request(app).get(`/api/leads/${LEAD_ID}`),
-      request(app).patch(`/api/leads/${LEAD_ID}`).send({ approve: true }),
-      request(app).post(`/api/leads/${LEAD_ID}/regenerate`).send({})
+      httpRequest('get', `/api/leads/${LEAD_ID}`),
+      httpRequest('patch', `/api/leads/${LEAD_ID}`).send({ approve: true }),
+      httpRequest('post', `/api/leads/${LEAD_ID}/regenerate`).send({})
     ]);
 
     for (const res of responses) {
@@ -148,9 +151,7 @@ describe('lead routes — authentication', () => {
    * approve a letter.
    */
   it('401s on the trailing-slash variant of the approval route too', async () => {
-    const res = await request(createApp())
-      .patch(`/api/leads/${LEAD_ID}/`)
-      .send({ approve: true });
+    const res = await httpRequest('patch', `/api/leads/${LEAD_ID}/`).send({ approve: true });
 
     expect(res.status).toBe(401);
     expect(update).not.toHaveBeenCalled();

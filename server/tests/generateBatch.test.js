@@ -46,6 +46,12 @@ const { beginCampaignGeneration, runCampaignGeneration, GENERATION_FAIL_REASON }
 const { SPELLING_CARVE_OUT, FIDELITY_SPELLING_RULE } = await import(
   '../src/services/generatePrompts.js'
 );
+const {
+  VARIETY_HEADING,
+  USED_OPENERS_HEADING,
+  OPENER_CHOICE_HEADING,
+  ASK_CHOICE_HEADING
+} = await import('../src/services/batchVariety.js');
 const { encrypt } = await import('../src/lib/crypto.js');
 const { logger } = await import('../src/lib/logger.js');
 
@@ -74,6 +80,24 @@ const DIRTY_PROFILE = {
   capitalization_quirks: "capitalizes 'AI' as 'Ai' inconsistently",
   vocabulary_level:
     'plain business English, some spelling errors (buisness, eachother, seprate, micic)'
+};
+
+const PROFILE_VERSION = 4;
+
+/**
+ * Batch variety needs a profile that actually names the person's own openers and
+ * ask forms — PROFILE has neither, which is realistic for a thin profile and is
+ * why the rest of this suite sees no variety block at all.
+ *
+ * `how_they_ask` is one descriptive string in the schema "with a verbatim
+ * example", so the ask forms are the QUOTED spans inside it.
+ */
+const STARTERS = ['saw that', 'quick one —', 'been meaning to reach out'];
+const ASK_FORMS = ['worth 15 minutes next week?', 'open to a look?'];
+const VARIETY_PROFILE = {
+  ...PROFILE,
+  sentence_starters: STARTERS,
+  how_they_ask: `they ask flat out, no build-up: "${ASK_FORMS[0]}" or "${ASK_FORMS[1]}"`
 };
 
 const TEMPLATE = 'Hi {{first_name}},\n\n{{personalized}}\n\nthanks,\nAna';
@@ -227,6 +251,7 @@ function seedLead(firstName, overrides = {}) {
     generated_subject: null,
     generated_body: null,
     fidelity_score: null,
+    variant_json: null,
     created_at: `2026-08-0${leadRows.length + 1}T00:00:00.000Z`,
     ...overrides
   };
@@ -235,11 +260,12 @@ function seedLead(firstName, overrides = {}) {
   return row;
 }
 
-function seedProfile(profileJson = PROFILE) {
+function seedProfile(profileJson = PROFILE, version = PROFILE_VERSION) {
   profileRows.push({
     id: 'vp-1',
     user_id: OWNER,
     profile_json: profileJson,
+    version,
     exemplars_enc: encrypt(JSON.stringify([EXEMPLAR]))
   });
 }
@@ -273,6 +299,37 @@ function goalSentToModel() {
   const end = prompt.indexOf('SIGN-OFF (required)');
 
   return start === -1 || end <= start ? '' : prompt.slice(start, end);
+}
+
+/**
+ * Just the batch-variety block of a draft prompt. Sliced the same way as
+ * goalSentToModel(): a bare toContain over the whole prompt would pass off the
+ * profile JSON, which lists the very same starters a few thousand characters up.
+ */
+function varietySection(prompt) {
+  const start = prompt.indexOf(VARIETY_HEADING);
+  const end = prompt.indexOf('SIGN-OFF (required)');
+
+  return start === -1 || end <= start ? '' : prompt.slice(start, end);
+}
+
+function bulletsIn(text) {
+  return text
+    .split('\n')
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2));
+}
+
+/** The bullets under ONE heading of the variety block — sections end at a blank line. */
+function bulletsUnder(prompt, heading) {
+  const section = varietySection(prompt);
+  const at = section.indexOf(heading);
+
+  return at === -1 ? [] : bulletsIn(section.slice(at).split('\n\n')[0]);
+}
+
+function draftPromptFor(leadId) {
+  return callOfKind(leadId, 'draft')?.prompt ?? '';
 }
 
 function callsForLead(leadId) {
@@ -731,6 +788,226 @@ describe('the spelling carve-out reaches the model on the batch path', () => {
   });
 });
 
+/**
+ * Batch variety (CLAUDE.md, Decisions 2026-08-12 "Batch variety, and the
+ * outcome-adaptation loop it feeds").
+ *
+ * THE MEASURED FAILURE: a real six-lead batch opened four letters with the same
+ * sentence and repeated five phrases across all six, because no prompt knew what
+ * the other letters in the run said. Every assertion below is on the payload the
+ * model actually received, so a service that stopped assembling the block — or
+ * assembled one of its own — fails here.
+ *
+ * The constraint that matters more than the variety itself: alternatives are the
+ * user's OWN. Six distinct openers that are not theirs is a worse regression than
+ * six identical ones that are.
+ */
+describe('batch variety', () => {
+  it('tells each letter which openers the earlier letters in the run already used', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE);
+    const leads = seedNames(3);
+
+    await generateAll();
+
+    const openerOf = (lead) => lead.variant_json.opener_starter;
+
+    // Nothing has run before the first letter, and it is not told otherwise.
+    expect(bulletsUnder(draftPromptFor(leads[0].id), USED_OPENERS_HEADING)).toEqual([]);
+
+    expect(bulletsUnder(draftPromptFor(leads[1].id), USED_OPENERS_HEADING)).toEqual([
+      openerOf(leads[0])
+    ]);
+    expect(bulletsUnder(draftPromptFor(leads[2].id), USED_OPENERS_HEADING)).toEqual([
+      openerOf(leads[0]),
+      openerOf(leads[1])
+    ]);
+
+    // Three letters, three different openings — the failure was four of six alike.
+    expect(new Set(leads.map(openerOf)).size).toBe(3);
+  });
+
+  it('offers only constructions this person actually writes, and invents none', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE);
+    const leads = seedNames(3);
+
+    await generateAll();
+
+    const theirOwn = [...STARTERS, ...ASK_FORMS];
+
+    for (const lead of leads) {
+      const prompt = draftPromptFor(lead.id);
+      const offered = bulletsIn(varietySection(prompt));
+
+      expect(offered.length).toBeGreaterThan(0);
+      // Every single suggestion in the block, from every section of it.
+      for (const suggestion of offered) expect(theirOwn).toContain(suggestion);
+
+      // And what it is told to use is one of theirs verbatim, not a paraphrase.
+      expect(STARTERS).toContain(bulletsUnder(prompt, OPENER_CHOICE_HEADING)[0]);
+      expect(ASK_FORMS).toContain(bulletsUnder(prompt, ASK_CHOICE_HEADING)[0]);
+    }
+  });
+
+  it('does not penalise the first letter, which has no run behind it', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE);
+    const [alpha] = seedNames(1);
+
+    const summary = await generateAll();
+
+    expect(summary).toMatchObject({ generated: 1, failed: 0 });
+    expect(alpha.status).toBe('generated');
+    expect(alpha.generated_body).toBe(signedBody('Alpha'));
+
+    const prompt = draftPromptFor(alpha.id);
+    expect(varietySection(prompt)).not.toContain(USED_OPENERS_HEADING);
+    expect(bulletsUnder(prompt, OPENER_CHOICE_HEADING)).toEqual([STARTERS[0]]);
+  });
+
+  /**
+   * Fewer openers than leads is the normal case for a thin profile and a real
+   * campaign. Reuse is then unavoidable: spread it, never fail the run, and above
+   * all never let the model fill the gap by inventing a construction.
+   */
+  it('spreads and reuses when the openers run out, and still invents none', async () => {
+    const twoStarters = STARTERS.slice(0, 2);
+    seedCampaign();
+    seedProfile({ ...VARIETY_PROFILE, sentence_starters: twoStarters });
+    const leads = seedNames(5);
+
+    const summary = await generateAll();
+
+    expect(summary).toMatchObject({ generated: 5, failed: 0 });
+
+    const used = leads.map((lead) => lead.variant_json.opener_starter);
+    for (const opener of used) expect(twoStarters).toContain(opener);
+    // Spread across both rather than collapsing onto one.
+    expect(new Set(used).size).toBe(2);
+
+    // Past the end of the list the block asks for reuse, not for something new.
+    const spent = draftPromptFor(leads[2].id);
+    expect(bulletsUnder(spent, USED_OPENERS_HEADING)).toEqual(twoStarters);
+    for (const suggestion of bulletsIn(varietySection(spent))) {
+      expect([...twoStarters, ...ASK_FORMS]).toContain(suggestion);
+    }
+  });
+
+  it('records the variant on the same write as the body', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE);
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    expect(alpha.variant_json).toEqual({
+      opener_starter: STARTERS[0],
+      cta_form: ASK_FORMS[0],
+      // Seven words against a median of 70 — measured off the letter itself.
+      length_band: 'short',
+      profile_version: PROFILE_VERSION
+    });
+
+    // One write, carrying both. Two writes could leave a letter and a variant
+    // that describe different drafts.
+    const writes = queries.filter(
+      (query) => query.table === 'leads' && query.op === 'update' && query.filters.id === alpha.id
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0].values.generated_body).toBe(signedBody('Alpha'));
+    expect(writes[0].values.variant_json).toBe(alpha.variant_json);
+  });
+
+  // Variant performance is not comparable across a re-synced profile, so the
+  // version has to be the one that actually wrote the letter.
+  it('stamps the variant with the version of the profile that wrote the letter', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE, 12);
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    expect(alpha.variant_json.profile_version).toBe(12);
+  });
+
+  /**
+   * The ledger is shared by three in-flight leads. What must hold is not just
+   * that every lead gets a variant, but that each lead's recorded variant is the
+   * one ITS OWN prompt was given — an off-by-one under interleaving would still
+   * leave every row populated and look fine.
+   */
+  it('keeps every letter matched to its own variant at concurrency 3', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE);
+    const leads = seedNames(7);
+
+    // Reversed completion order: the later a lead starts, the sooner it returns.
+    respond = async (call) => {
+      const wait = call.lead ? leads.length - leads.indexOf(call.lead) : 1;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+
+      return defaultRespond(call);
+    };
+
+    const summary = await generateAll();
+
+    expect(summary).toMatchObject({ generated: 7, failed: 0 });
+    expect(maxInflight).toBe(3);
+
+    for (const lead of leads) {
+      const prompt = draftPromptFor(lead.id);
+      expect(bulletsUnder(prompt, OPENER_CHOICE_HEADING)).toEqual([
+        lead.variant_json.opener_starter
+      ]);
+      expect(bulletsUnder(prompt, ASK_CHOICE_HEADING)).toEqual([lead.variant_json.cta_form]);
+      expect(lead.variant_json.profile_version).toBe(PROFILE_VERSION);
+    }
+
+    // Seven letters over three openers: every one of theirs is in play and none
+    // has run away with the batch.
+    const used = leads.map((lead) => lead.variant_json.opener_starter);
+    expect(new Set(used).size).toBe(3);
+    expect(used.filter((opener) => opener === STARTERS[0])).toHaveLength(3);
+  });
+
+  /**
+   * Template mode has no opener to vary — the letter around the personalised gaps
+   * is the user's own writing, identical for every lead because they chose it. It
+   * still gets a variant row, with the parts it did not choose left null rather
+   * than filled in with a construction the letter never used.
+   */
+  it('varies nothing in template mode but still records a variant', async () => {
+    seedCampaign({ mode: 'template', template_body: TEMPLATE, subject_template: SUBJECT_TEMPLATE });
+    seedProfile(VARIETY_PROFILE);
+    const [alpha] = seedNames(1);
+
+    await generateAll();
+
+    expect(callOfKind(alpha.id, 'personalize').prompt).not.toContain(VARIETY_HEADING);
+    expect(alpha.variant_json).toEqual({
+      opener_starter: null,
+      cta_form: null,
+      length_band: 'short',
+      profile_version: PROFILE_VERSION
+    });
+  });
+
+  it('keeps the variant and the constructions out of the logs', async () => {
+    seedCampaign();
+    seedProfile(VARIETY_PROFILE);
+    seedNames(2);
+
+    await generateAll();
+
+    const serialized = loggedText();
+    for (const construction of [...STARTERS, ...ASK_FORMS]) {
+      expect(serialized).not.toContain(construction);
+    }
+    expect(serialized).not.toContain('opener_starter');
+  });
+});
+
 describe('resilience', () => {
   it('fails one lead on a malformed model response and generates the rest', async () => {
     seedCampaign();
@@ -884,7 +1161,10 @@ describe('owner scoping', () => {
 
     expect(queries.length).toBeGreaterThan(0);
     for (const query of queries) {
-      expect(query.filters.user_id).toBe(OWNER);
+      // `profiles` is keyed by the auth user id, so `id` IS its owner filter;
+      // every other table carries user_id. Either way: this user, or nothing.
+      const owner = query.table === 'profiles' ? query.filters.id : query.filters.user_id;
+      expect(owner, query.table).toBe(OWNER);
     }
   });
 

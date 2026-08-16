@@ -1,8 +1,8 @@
 # VoiceReach last-green test baseline
-# Updated: 2026-08-12 | Node v20.20.2 | branch main
-# Totals: server=653, web=255, combined=908
+# Updated: 2026-08-13 | Node v20.20.2 | branch fix/voice-not-typos
+# Totals: server=755, web=263, combined=1018
 
-### SERVER (/server, vitest, 653 tests) ###
+### SERVER (/server, vitest, 755 tests) ###
 tests/app.test.js > GET /api/gmail/callback > 400s when Google reports an error
 tests/app.test.js > GET /api/gmail/callback > is public but 400s without a code and state
 tests/app.test.js > GET /api/health > is public and returns ok
@@ -29,6 +29,20 @@ tests/auth.test.js > requireAuth > 401s when Supabase returns no user
 tests/auth.test.js > requireAuth > 401s when no Authorization header is present
 tests/auth.test.js > requireAuth > 500s without leaking details when verification throws
 tests/auth.test.js > requireAuth > attaches req.user and calls next on a valid token
+tests/batchVariety.test.js > reading the user's own constructions > falls back to the whole description when it quotes no example
+tests/batchVariety.test.js > reading the user's own constructions > returns nothing rather than guessing when the profile names no openers
+tests/batchVariety.test.js > reading the user's own constructions > takes the ask forms from the quoted examples inside how_they_ask
+tests/batchVariety.test.js > reading the user's own constructions > trims, de-duplicates and drops anything unusable
+tests/batchVariety.test.js > the variant record > bands a letter against the median the user actually writes to
+tests/batchVariety.test.js > the variant record > leaves the assigned fields null when there was no batch to vary against
+tests/batchVariety.test.js > the variant record > records all four fields for a lead that had an assignment
+tests/batchVariety.test.js > the variant record > reports an unknown band rather than guessing one
+tests/batchVariety.test.js > the variety ledger > carries the variety heading so the prompt is greppable
+tests/batchVariety.test.js > the variety ledger > hands out a different opener and ask to each lead, in their own words
+tests/batchVariety.test.js > the variety ledger > names the openers already reserved, and names none to the first lead
+tests/batchVariety.test.js > the variety ledger > reuses in order once the list is spent, never running dry
+tests/batchVariety.test.js > the variety ledger > says nothing at all when the profile names no constructions
+tests/batchVariety.test.js > the variety ledger > suggests nothing the user does not already write
 tests/campaignGoal.test.js > campaignGoal > carries the user's own subject line through
 tests/campaignGoal.test.js > campaignGoal > falls back again when a campaign has neither, rather than returning nothing
 tests/campaignGoal.test.js > campaignGoal > falls back to the campaign name when there is no brief
@@ -213,6 +227,15 @@ tests/generate.test.js > generateEmail — signing off as the user > does not re
 tests/generate.test.js > generateEmail — signing off as the user > names the user's own closings in the draft prompt
 tests/generate.test.js > generateEmail — signing off as the user > regenerates exactly once when the draft does not sign off
 tests/generate.test.js > generateEmail — signing off as the user > treats a closing with no name as unsigned
+tests/generateBatch.test.js > batch variety > does not penalise the first letter, which has no run behind it
+tests/generateBatch.test.js > batch variety > keeps every letter matched to its own variant at concurrency 3
+tests/generateBatch.test.js > batch variety > keeps the variant and the constructions out of the logs
+tests/generateBatch.test.js > batch variety > offers only constructions this person actually writes, and invents none
+tests/generateBatch.test.js > batch variety > records the variant on the same write as the body
+tests/generateBatch.test.js > batch variety > spreads and reuses when the openers run out, and still invents none
+tests/generateBatch.test.js > batch variety > stamps the variant with the version of the profile that wrote the letter
+tests/generateBatch.test.js > batch variety > tells each letter which openers the earlier letters in the run already used
+tests/generateBatch.test.js > batch variety > varies nothing in template mode but still records a variant
 tests/generateBatch.test.js > concurrency and progress > never runs more than three leads at once
 tests/generateBatch.test.js > concurrency and progress > writes each lead as it completes rather than once at the end
 tests/generateBatch.test.js > owner scoping > 400s before any model call when there is no voice profile yet
@@ -341,6 +364,7 @@ tests/leadRegenerate.test.js > regenerateLead > redrafts a lead the batch could 
 tests/leadRegenerate.test.js > regenerateLead > refuses a lead missing a merge variable, naming the variable and not the value
 tests/leadRegenerate.test.js > regenerateLead > refuses to redraft a letter that has gone out or is on its way
 tests/leadRegenerate.test.js > regenerateLead > reuses the batch's drafting, with this user's voice and campaign
+tests/leadRegenerate.test.js > regenerateLead > rewrites the variant on the same update, never leaving the old one behind
 tests/leadRegenerate.test.js > regenerateLead > stores the new letter and sends the lead back for approval
 tests/leadReview.test.js > editing a letter > 400s when the patch carries nothing editable
 tests/leadReview.test.js > editing a letter > approves the edited words when both arrive together
@@ -426,6 +450,17 @@ tests/logger.test.js > sanitizeMeta > redacts non-scalar values
 tests/logger.test.js > sanitizeMeta > redacts token-shaped values even on allowlisted fields
 tests/logger.test.js > sanitizeMeta > returns an empty object for missing or non-object meta
 tests/logger.test.js > sanitizeMeta > truncates long strings
+tests/meRoutes.test.js > GET /api/me > 401s without a token
+tests/meRoutes.test.js > GET /api/me > answers null for an account that has no name yet
+tests/meRoutes.test.js > GET /api/me > returns the signed-in user with their sign-off name
+tests/meRoutes.test.js > GET /api/me > still answers when the name lookup fails, rather than 500ing the page
+tests/meRoutes.test.js > PATCH /api/me > 400s a blank name and writes nothing
+tests/meRoutes.test.js > PATCH /api/me > 400s a name past the length cap
+tests/meRoutes.test.js > PATCH /api/me > 401s without a token, and writes nothing
+tests/meRoutes.test.js > PATCH /api/me > 404s when the profile row is missing
+tests/meRoutes.test.js > PATCH /api/me > ignores any owner named in the body and writes the token's user
+tests/meRoutes.test.js > PATCH /api/me > never logs the name, on the happy path or the failure path
+tests/meRoutes.test.js > PATCH /api/me > saves the name on the caller's own row
 tests/recipientCheck.test.js > verifyRecipient — MX > lowercases the domain before resolving
 tests/recipientCheck.test.js > verifyRecipient — MX > reads ENOTFOUND as a domain that provably cannot receive mail
 tests/recipientCheck.test.js > verifyRecipient — MX > reads NXDOMAIN the same way
@@ -521,6 +556,30 @@ tests/sendFollowUp.test.js > sendEmail — recording what we sent > does NOT fai
 tests/sendFollowUp.test.js > sendEmail — recording what we sent > does not change the HTTP response when the send_log write fails
 tests/sendFollowUp.test.js > sendEmail — recording what we sent > writes the Gmail ids to send_log after a successful send
 tests/sendFollowUp.test.js > withReplyPrefix > adds "Re: " once and never twice
+tests/senderName.test.js > getSenderName > asks nothing of the database without a user id
+tests/senderName.test.js > getSenderName > never logs the name it read
+tests/senderName.test.js > getSenderName > reads this user's own profile row and returns the name
+tests/senderName.test.js > getSenderName > returns null for a pre-006 row with no name
+tests/senderName.test.js > getSenderName > returns null rather than throwing when the row is missing or the read fails
+tests/senderName.test.js > getSenderName > trims and collapses whatever is stored
+tests/senderName.test.js > setSenderName > 400s on a blank name and writes nothing
+tests/senderName.test.js > setSenderName > 400s on a name longer than the cap, and accepts one exactly at it
+tests/senderName.test.js > setSenderName > 400s without a user id, and never writes an unscoped row
+tests/senderName.test.js > setSenderName > 404s when there is no profile row, and 500s when the write fails
+tests/senderName.test.js > setSenderName > collapses whitespace so a name cannot carry lines of its own
+tests/senderName.test.js > setSenderName > logs the user id and never the name, on success or on failure
+tests/senderName.test.js > setSenderName > never puts the rejected value in the error message
+tests/senderName.test.js > setSenderName > writes the name to this user's own row and returns it
+tests/senderNameFlow.test.js > the batch path > carries the same name into every draft prompt of a run
+tests/senderNameFlow.test.js > the batch path > generates the run unchanged for an account with no name
+tests/senderNameFlow.test.js > the batch path > redrafts an unsigned letter for a new user here too
+tests/senderNameFlow.test.js > the compose path > never blocks an account that has no name yet
+tests/senderNameFlow.test.js > the compose path > never logs the name
+tests/senderNameFlow.test.js > the compose path > redrafts a brand-new user's unsigned letter instead of sending it
+tests/senderNameFlow.test.js > the compose path > survives an account row that does not exist at all
+tests/senderNameFlow.test.js > the compose path > tells the model the exact name to sign, even with no styles and no exemplars
+tests/senderNameFlow.test.js > the redraft-one path (regenerateLead) > carries the sign-off name into the redraft prompt, as the batch it reuses does
+tests/senderNameFlow.test.js > the redraft-one path (regenerateLead) > redrafts a new user's unsigned letter here too, instead of storing it unsigned
 tests/signoff.test.js > findMissingSignoff > accepts a closing that already carries the name
 tests/signoff.test.js > findMissingSignoff > accepts a one-word closing that stands on its own
 tests/signoff.test.js > findMissingSignoff > carries no email content in the violation it returns
@@ -536,6 +595,49 @@ tests/signoff.test.js > findMissingSignoff > reads the sign-off correctly on a b
 tests/signoff.test.js > signoffStyles > drops blanks but keeps the usable entries
 tests/signoff.test.js > signoffStyles > returns the user's own closings
 tests/signoff.test.js > signoffStyles > survives a missing, empty or malformed list without throwing
+tests/signoffName.test.js > a null name never throws and never blocks > blocks nothing at all when there is neither a name nor a style
+tests/signoffName.test.js > a null name never throws and never blocks > falls back to style matching for an account with no name
+tests/signoffName.test.js > a null name never throws and never blocks > never throws on a malformed draft, whatever the name is
+tests/signoffName.test.js > a null name never throws and never blocks > survives a name made of regular-expression characters
+tests/signoffName.test.js > the new-user gap: a sign-off is enforced with no signoff_styles at all > flags a draft signed with somebody else's name, even when the closing matches
+tests/signoffName.test.js > the new-user gap: a sign-off is enforced with no signoff_styles at all > flags a new user's draft that closes but signs nobody
+tests/signoffName.test.js > the new-user gap: a sign-off is enforced with no signoff_styles at all > flags an unsigned draft from a brand-new user with no styles and no exemplars
+tests/signoffName.test.js > the new-user gap: a sign-off is enforced with no signoff_styles at all > raises no violation when that same new user signs the draft
+tests/signoffName.test.js > the new-user gap: a sign-off is enforced with no signoff_styles at all > reports the name and the style separately when a draft misses both
+tests/signoffName.test.js > the violation carries no personal data > names neither the sender, the recipient nor anything from the letter
+tests/signoffName.test.js > what counts as signing with your own name > accepts a dash before the name
+tests/signoffName.test.js > what counts as signing with your own name > accepts a different case from the profile
+tests/signoffName.test.js > what counts as signing with your own name > accepts closing and name on one line
+tests/signoffName.test.js > what counts as signing with your own name > accepts the first name alone, as most people sign
+tests/signoffName.test.js > what counts as signing with your own name > accepts the full name
+tests/signoffName.test.js > what counts as signing with your own name > does not accept the name buried inside a longer word
+tests/signoffName.test.js > what counts as signing with your own name > does not accept the surname on its own
+tests/signoffName.test.js > what counts as signing with your own name > offers the whole name and the first name as the forms it will match
+tests/signoffName.test.js > what counts as signing with your own name > reads only the sign-off region, not the whole letter
+tests/sparseProfile.test.js > a thin profile degrades to unknown, never to a made-up value > records a brand-new user's variant as unknown, not as generation zero
+tests/sparseProfile.test.js > a thin profile degrades to unknown, never to a made-up value > reports an unknown length band and version rather than guessing either
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > names no openings to a user who has none, while still varying their asks
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > never prints a heading with an empty list under it, for any thin profile
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > offers a new user with a profile whose every field is null no opening list at all, not an empty one
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > offers a new user with a profile whose fields are the wrong type no opening list at all, not an empty one
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > offers a new user with an empty profile (a brand-new user) no opening list at all, not an empty one
+tests/sparseProfile.test.js > a thin profile is never filled in with constructions the user does not write > reuses the single opening a new user has rather than inventing five more
+tests/sparseProfile.test.js > a thin profile never blocks a new user on a check we cannot make > accepts a properly signed draft for every thin profile
+tests/sparseProfile.test.js > a thin profile never blocks a new user on a check we cannot make > raises no sign-off violation when the profile names no sign-off
+tests/sparseProfile.test.js > a thin profile still gets the spelling carve-out and honest exemplar wording > carries the carve-out into every prompt for every thin profile
+tests/sparseProfile.test.js > a thin profile still gets the spelling carve-out and honest exemplar wording > does not claim to include example emails when the user has none
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile whose every field is null
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile whose fields are the wrong type
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile with exactly one sentence starter
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with a profile with no sentence_starters
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes draft, personalize and fidelity prompts for a new user with an empty profile (a brand-new user)
+tests/sparseProfile.test.js > a thin profile still produces every prompt > writes usable prompts when the caller passes no profile at all
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > generates every lead in the batch, and fails none of them
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > sends no variety block at all rather than an empty list of choices
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > still carries the spelling carve-out to the model
+tests/sparseProfileBatch.test.js > a brand-new user with an empty voice profile > stores a variant of nulls, not of zeros and empty strings
+tests/sparseProfileBatch.test.js > a user who deleted their exemplars > generates the batch and never claims to have example emails it does not have
+tests/sparseProfileBatch.test.js > a user whose profile names exactly one opening > offers only that opening to all six leads, and invents no others
 tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > carries the same carve-out into template-mode personalization
 tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > holds the line when the stored profile catalogues the errors as traits
 tests/spellingCarveOut.test.js > generation prompts refuse to reproduce misspellings > still says nothing about typos when there are no exemplars to warn about
@@ -657,14 +759,16 @@ tests/voice.test.js > selectExemplars > returns nothing when there is no usable 
 tests/voice.test.js > selectExemplars > returns the emails the model picked, redacted
 tests/voice.test.js > selectExemplars > tops up to 5 when the model under-picks
 
-### WEB (/web, vitest, 255 tests) ###
+### WEB (/web, vitest, 263 tests) ###
 tests/App.test.jsx > App > renders AuthPage when there is no session
 tests/App.test.jsx > App > renders OnboardingPage inside the shell when there is a session
 tests/App.test.jsx > App > renders UnsubscribePage on /u/<token> with no session, and never AuthPage
+tests/AuthPage.test.jsx > AuthPage > asks for the full name on signup only, never on sign-in
 tests/AuthPage.test.jsx > AuthPage > disables the submit button while the request is in flight
+tests/AuthPage.test.jsx > AuthPage > refuses to sign up without a name
 tests/AuthPage.test.jsx > AuthPage > renders the editorial hero and the sign-in slip
 tests/AuthPage.test.jsx > AuthPage > signs in through Supabase in login mode
-tests/AuthPage.test.jsx > AuthPage > signs up through Supabase in signup mode
+tests/AuthPage.test.jsx > AuthPage > signs up through Supabase with the full name as auth metadata
 tests/AuthPage.test.jsx > AuthPage > surfaces an auth error
 tests/AuthPage.test.jsx > AuthPage > toggles between sign in and sign up
 tests/CampaignBuilderPage.test.jsx > CampaignBuilderPage — mode > shows the template editor and merge bar only in template mode
@@ -838,6 +942,12 @@ tests/ReviewDeck.test.jsx > the review deck > shows the edit rather than the dra
 tests/ReviewDeck.test.jsx > the review deck > stays on the letter, and says why, when the server refuses the approval
 tests/ReviewDeck.test.jsx > the review deck > stores an edit as edited_body, and shows the edit rather than the draft
 tests/ReviewDeck.test.jsx > the review deck > types a newline when Enter is pressed inside the body, and approves nothing
+tests/SignoffNamePrompt.test.jsx > SignoffNamePrompt > asks a pre-006 account for its name
+tests/SignoffNamePrompt.test.jsx > SignoffNamePrompt > keeps the prompt open and explains itself when the save fails
+tests/SignoffNamePrompt.test.jsx > SignoffNamePrompt > refuses a blank name without calling the server
+tests/SignoffNamePrompt.test.jsx > SignoffNamePrompt > renders nothing at all when the lookup fails
+tests/SignoffNamePrompt.test.jsx > SignoffNamePrompt > saves the name and gets out of the way
+tests/SignoffNamePrompt.test.jsx > SignoffNamePrompt > says nothing to an account that already has a name
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > does NOT call /send when the dialog opens — only the approve click sends
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > opens ConfirmSendDialog, not a confirmation of its own
 tests/ThreadFollowUp.test.jsx > Follow-up — it goes through the shared confirmation dialog > prefills the recipient from whoever spoke last in the thread

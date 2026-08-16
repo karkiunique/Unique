@@ -54,14 +54,49 @@ afterEach(() => {
 });
 
 describe('App', () => {
-  it('renders AuthPage when there is no session', async () => {
+  // Decisions, 2026-08-15: `/` is the front door and must not be a password box.
+  it('renders LandingPage at / when there is no session, and never AuthPage', async () => {
     getSession.mockResolvedValue({ data: { session: null } });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: /We make outreach/ })).toBeInTheDocument();
+    expect(screen.queryByText('Return to your desk')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enter' })).not.toBeInTheDocument();
+  });
+
+  it('renders AuthPage at /signin when there is no session', async () => {
+    getSession.mockResolvedValue({ data: { session: null } });
+    window.history.pushState({}, '', '/signin');
 
     render(<App />);
 
     expect(await screen.findByText('Return to your desk')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enter' })).toBeInTheDocument();
+  });
+
+  // Someone typing an app path is reaching for the app, not for the brochure.
+  it('renders AuthPage on any other signed-out path, not the landing page', async () => {
+    getSession.mockResolvedValue({ data: { session: null } });
+    window.history.pushState({}, '', '/compose');
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: 'Enter' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /We make outreach/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the app, not a login form, to a signed-in user who lands on /signin', async () => {
+    getSession.mockResolvedValue({
+      data: { session: { user: { email: 'dev@example.com' } } }
+    });
+    window.history.pushState({}, '', '/signin');
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enter' })).not.toBeInTheDocument();
   });
 
   it('renders OnboardingPage inside the shell when there is a session', async () => {

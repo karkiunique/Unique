@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 const { oauthClient, gmailApi, OAuth2, gmailFactory } = vi.hoisted(() => {
   const oauthClient = {
@@ -180,6 +181,14 @@ function mockThread() {
   });
 }
 
+// One server for the whole file: 4 requests, well inside the app's 100-per-60s
+// rate limit. See helpers/testServer.js for why per-request binds were a problem.
+const httpRequest = useSharedTestServer(createApp);
+
+function authed(method, path) {
+  return httpRequest(method, path).set(...AUTH_HEADER);
+}
+
 beforeEach(() => {
   for (const key of ENV_KEYS) envBackup[key] = process.env[key];
 
@@ -336,16 +345,14 @@ describe('getSentThread — content', () => {
 
 describe('GET /api/threads/:threadId', () => {
   it('401s without a token, and never calls Gmail', async () => {
-    const res = await request(createApp()).get(`/api/threads/${OURS}`);
+    const res = await httpRequest('get', `/api/threads/${OURS}`);
 
     expect(res.status).toBe(401);
     expect(gmailApi.users.threads.get).not.toHaveBeenCalled();
   });
 
   it('returns the thread for its owner', async () => {
-    const res = await request(createApp())
-      .get(`/api/threads/${OURS}`)
-      .set(...AUTH_HEADER);
+    const res = await authed('get', `/api/threads/${OURS}`);
 
     expect(res.status).toBe(200);
     expect(res.body.threadId).toBe(OURS);
@@ -354,9 +361,7 @@ describe('GET /api/threads/:threadId', () => {
   });
 
   it('404s a thread the user did not send from Unique', async () => {
-    const res = await request(createApp())
-      .get(`/api/threads/${THEIRS}`)
-      .set(...AUTH_HEADER);
+    const res = await authed('get', `/api/threads/${THEIRS}`);
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Thread not found' });
@@ -364,9 +369,7 @@ describe('GET /api/threads/:threadId', () => {
   });
 
   it('400s an implausible thread id with {error} JSON', async () => {
-    const res = await request(createApp())
-      .get('/api/threads/bad.id')
-      .set(...AUTH_HEADER);
+    const res = await authed('get', '/api/threads/bad.id');
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Invalid thread id' });

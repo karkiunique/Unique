@@ -1,0 +1,231 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+/**
+ * The public landing page (Decisions, 2026-08-15).
+ *
+ * Two things matter most here and neither is cosmetic:
+ *
+ * 1. The page renders for a stranger. No session, no authed request, and — the
+ *    part that is easy to regress — it still renders when the API is down, because
+ *    the counter is decoration and the form is the point.
+ * 2. The reply-rate figures are the INDUSTRY's, shown with their attribution. A
+ *    change that quietly drops the label, or restores the unsourced 41%, turns a
+ *    benchmark into a claim about us. The test asserts on both numbers and on the
+ *    label, so removing the label fails.
+ */
+
+const { apiFetch, navigateTo } = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  navigateTo: vi.fn()
+}));
+
+vi.mock('../src/lib/api.js', () => ({
+  api: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  apiFetch
+}));
+
+vi.mock('../src/lib/navigate.js', () => ({
+  navigateTo,
+  getQueryParam: () => null
+}));
+
+const { default: LandingPage } = await import('../src/pages/LandingPage.jsx');
+
+beforeEach(() => {
+  apiFetch.mockReset();
+  navigateTo.mockReset();
+  apiFetch.mockImplementation((path) =>
+    path === '/waitlist/count' ? Promise.resolve({ count: 88 }) : Promise.resolve({})
+  );
+});
+
+describe('LandingPage', () => {
+  it('renders the hero, the five steps and the waitlist with no session', async () => {
+    render(<LandingPage />);
+
+    expect(screen.getByRole('heading', { name: /We make outreach/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Connect your Gmail/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Track replies/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reserve my seat/ })).toBeInTheDocument();
+
+    // Every request this page makes is unauthenticated.
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    for (const [, options] of apiFetch.mock.calls) {
+      expect(options).toMatchObject({ auth: false });
+    }
+  });
+
+  it('shows the benchmark figures WITH their attribution, and never 41%', () => {
+    render(<LandingPage />);
+
+    expect(screen.getByText('reply 3%')).toBeInTheDocument();
+    expect(screen.getByText('reply 11%')).toBeInTheDocument();
+    expect(screen.getByText(/Industry benchmarks/i)).toBeInTheDocument();
+    // The handoff's unsourced number. It must not come back.
+    expect(screen.queryByText(/41%/)).not.toBeInTheDocument();
+  });
+
+  it('sends the visitor to /signin only when they ask for it', async () => {
+    render(<LandingPage />);
+
+    expect(navigateTo).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(navigateTo).toHaveBeenCalledWith('/signin');
+  });
+
+  it('shows the live count in both counters once it arrives', async () => {
+    apiFetch.mockResolvedValue({ count: 137 });
+
+    render(<LandingPage />);
+
+    // Hero and waitlist block read from one piece of state, so they can never
+    // disagree — which is the whole reason the count is not tracked twice.
+    expect(await screen.findAllByText('137')).toHaveLength(2);
+  });
+
+  it('still renders, at the base count, when the API is unreachable', async () => {
+    apiFetch.mockRejectedValue(new Error('Failed to fetch'));
+
+    render(<LandingPage />);
+
+    expect(screen.getByRole('button', { name: /Reserve my seat/ })).toBeInTheDocument();
+    // Two counters, hero and waitlist block, both holding the base.
+    await waitFor(() => expect(screen.getAllByText('88').length).toBe(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('stamps the confirmation with the seat the SERVER issued, not the local count', async () => {
+    apiFetch.mockImplementation((path) =>
+      path === '/waitlist/count'
+        ? Promise.resolve({ count: 88 })
+        : Promise.resolve({ seat: 104, count: 104 })
+    );
+
+    render(<LandingPage />);
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'sam@acme.com');
+    await userEvent.click(screen.getByRole('button', { name: /Reserve my seat/ }));
+
+    expect(await screen.findByText(/You’re on the list/)).toBeInTheDocument();
+    expect(screen.getByText('No. 104')).toBeInTheDocument();
+    expect(screen.getByText('sam@acme.com')).toBeInTheDocument();
+
+    expect(apiFetch).toHaveBeenCalledWith('/waitlist', {
+      method: 'POST',
+      body: { email: 'sam@acme.com' },
+      auth: false
+    });
+
+    // The hero counter moves with it.
+    expect(screen.getByText('104')).toBeInTheDocument();
+  });
+
+  /**
+   * The counter is monotonic. A returning member re-submitting is answered with
+   * the list's count, not their own seat — but the page must not depend on the
+   * server getting that right, because a counter that ticks DOWN in front of a
+   * visitor reads as broken however it got there.
+   */
+  it('never lets the counter go backwards when a join answers low', async () => {
+    apiFetch.mockImplementation((path) =>
+      path === '/waitlist/count'
+        ? Promise.resolve({ count: 137 })
+        : // An existing member's own seat, lower than the live count.
+          Promise.resolve({ seat: 90, count: 90 })
+    );
+
+    render(<LandingPage />);
+    await waitFor(() => expect(screen.getAllByText('137').length).toBeGreaterThan(0));
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'sam@acme.com');
+    await userEvent.click(screen.getByRole('button', { name: /Reserve my seat/ }));
+
+    // They are told their real seat...
+    expect(await screen.findByText('No. 90')).toBeInTheDocument();
+    // ...and the counter held at 137 rather than counting itself down.
+    expect(screen.getByText('137')).toBeInTheDocument();
+    expect(screen.queryByText('90')).not.toBeInTheDocument();
+  });
+
+  it('does not let a late count fetch overwrite a completed join', async () => {
+    let resolveCount;
+    apiFetch.mockImplementation((path) => {
+      if (path === '/waitlist/count') {
+        // Still in flight when the join lands — it read the list BEFORE the join.
+        return new Promise((resolve) => {
+          resolveCount = resolve;
+        });
+      }
+      return Promise.resolve({ seat: 138, count: 138 });
+    });
+
+    render(<LandingPage />);
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'sam@acme.com');
+    await userEvent.click(screen.getByRole('button', { name: /Reserve my seat/ }));
+    expect(await screen.findByText('No. 138')).toBeInTheDocument();
+
+    resolveCount({ count: 137 });
+
+    await waitFor(() => expect(screen.getByText('138')).toBeInTheDocument());
+    expect(screen.queryByText('137')).not.toBeInTheDocument();
+  });
+
+  it('shows the server’s own message when the server answered', async () => {
+    apiFetch.mockImplementation((path) => {
+      if (path === '/waitlist/count') return Promise.resolve({ count: 88 });
+      // A real response, so the message is ours and safe to surface verbatim.
+      const err = new Error('Too many requests, please slow down');
+      err.status = 429;
+      return Promise.reject(err);
+    });
+
+    render(<LandingPage />);
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'sam@acme.com');
+    await userEvent.click(screen.getByRole('button', { name: /Reserve my seat/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many requests');
+    expect(screen.queryByText(/You’re on the list/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reserve my seat/ })).toBeInTheDocument();
+  });
+
+  /**
+   * When the API is unreachable, fetch rejects with a TypeError reading "Failed to
+   * fetch". That is a developer string and must never reach a visitor — it tells
+   * them nothing they can act on and makes the product look broken for a reason
+   * that is ours, not theirs.
+   */
+  it('never shows the raw "Failed to fetch" when the server is unreachable', async () => {
+    apiFetch.mockImplementation((path) => {
+      if (path === '/waitlist/count') return Promise.resolve({ count: 88 });
+      // No `status`: the request never landed. This is exactly what a stopped
+      // server looks like from the browser.
+      return Promise.reject(new TypeError('Failed to fetch'));
+    });
+
+    render(<LandingPage />);
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'sam@acme.com');
+    await userEvent.click(screen.getByRole('button', { name: /Reserve my seat/ }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not reach the waitlist');
+    expect(alert).not.toHaveTextContent(/failed to fetch/i);
+    expect(screen.queryByText(/You’re on the list/)).not.toBeInTheDocument();
+  });
+
+  it('refuses an obviously malformed address without calling the API', async () => {
+    render(<LandingPage />);
+
+    await userEvent.type(screen.getByLabelText('Email address'), 'nope');
+    await userEvent.click(screen.getByRole('button', { name: /Reserve my seat/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('valid email address');
+    expect(apiFetch).not.toHaveBeenCalledWith('/waitlist', expect.anything());
+  });
+});

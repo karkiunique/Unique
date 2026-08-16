@@ -74,6 +74,10 @@ APP_URL=http://localhost:5173
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
+  full_name text,                    -- migration 006. THE authoritative sign-off name. Required at
+                                     -- signup by the app and populated by the 002 trigger from
+                                     -- auth metadata. Nullable in the DB ONLY because pre-006
+                                     -- accounts exist and a name cannot be invented for them.
   gmail_connected boolean default false,
   gmail_refresh_token_enc text,      -- AES-256-GCM encrypted app-side (TOKEN_ENC_KEY). NEVER stored plaintext, including in dev.
   daily_send_limit int default 30,
@@ -120,6 +124,10 @@ create table leads (
   generated_body text,
   edited_body text,                  -- user's manual edit wins over generated
   fidelity_score int,                -- 0-100 from the generation fidelity check; <80 flags "low fidelity" in review UI
+  variant_json jsonb,                -- migration 005: WHICH variant this letter used. Written at
+                                     -- generation, read by nothing until the adaptation loop exists.
+                                     -- {opener_starter, cta_form, length_band, profile_version}.
+                                     -- References the user's OWN profile entries — no new content class.
   status text default 'pending' check (status in ('pending','generated','approved','queued','sent','replied','bounced','unsubscribed','failed')),
   sent_at timestamptz, replied_at timestamptz,
   gmail_message_id text, gmail_thread_id text,
@@ -145,6 +153,23 @@ create table send_log (
 -- migration 003 adds gmail_message_id / gmail_thread_id so the register can show ONLY mail sent
 -- from Unique. IDs ONLY — never the subject, recipient or body. Those are fetched from Gmail on
 -- demand and never persisted. unique(user_id, gmail_message_id) keeps the write idempotent.
+
+create table waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,        -- stored lowercased+trimmed; unique makes a re-submit idempotent
+  seat bigint generated always as identity (start with 89) unique,
+  created_at timestamptz default now(),
+  invited_at timestamptz             -- null until the go-live onboarding mail goes out
+);
+-- migration 007 (landing/waitlist page). These people are NOT users — there is no profiles row and
+-- no auth.uid() — so the usual `user_id = auth.uid()` policy cannot apply. RLS is enabled with NO
+-- policy at all, which denies anon and authenticated outright; only the service-role server touches
+-- it. That is deliberately stricter than the other tables: nobody should be able to read the list.
+-- `seat` is an identity column, not a computed count: it is issued atomically by Postgres, so two
+-- concurrent signups can never be handed the same number, and a deleted row never re-issues a seat.
+-- The displayed count is max(seat) (88 when empty), so the counter and the seat are the same number
+-- by construction and cannot drift. The email is PII: never logged, never in an error message,
+-- never returned by any endpoint.
 -- RLS: enable on all tables; policy = user_id = auth.uid() for select/insert/update/delete.
 -- Server uses service-role key and bypasses RLS.
 --
@@ -161,6 +186,8 @@ create table send_log (
 ```
 POST /gmail/connect          -> returns Google OAuth URL
 GET  /gmail/callback         -> handles code exchange, stores refresh token, kicks off ingestion
+PATCH /me                    -> set the user's full_name (the sign-off name). Backfill for pre-006
+                                accounts, which are prompted on next login. (added 2026-08-13)
 POST /voice/generate         -> builds voice profile from ingested sent emails; returns profile
 GET  /voice                  -> current voice profile
 POST /campaigns              -> create campaign {name, mode, template_body?, subject_template?}
@@ -177,6 +204,10 @@ POST /campaigns/:id/send     -> queue all approved leads, set status 'sending'
 POST /campaigns/:id/pause
 GET  /dashboard              -> aggregate stats
 POST /unsubscribe/:token     -> public route, no auth (token = signed lead id)
+POST /waitlist               -> public route, no auth. {email} -> {seat, count}. Landing page
+                                signup. Strict rate limit. (added 2026-08-15)
+GET  /waitlist/count         -> public route, no auth. {count} for the live counter. Never returns
+                                an address. (added 2026-08-15)
 ```
 
 ## Core implementation specs
@@ -258,6 +289,9 @@ DELIBERATE style (lowercase `i`, no caps after a dash), never for typos.
 - Export `enrichLead(lead)` and `researchLead(lead)` with the real Apollo/Tavily call shapes, but if API keys are absent return `{}` gracefully. MVP flow is CSV upload only.
 
 ## Frontend pages (web)
+0. **Landing / waitlist:** `/` — the PUBLIC entry point. Masthead → hero → five "how it works" steps →
+   waitlist block → footer. Sign-in is NOT shown until the visitor asks for it (see Decisions,
+   2026-08-15). No auth, no Supabase session required to render.
 1. **Onboarding:** signup/login (Supabase Auth) → "Connect Gmail" button → OAuth → "Building your voice profile…" progress screen (poll GET /voice) → show profile summary, allow "Regenerate."
 2. **Campaigns list:** cards with name, mode badge, sent/replied counts, status.
 3. **Campaign builder:** name → mode toggle (Voice / Template) → if template: textarea editor with a merge-var helper bar ({{first_name}} {{company}} {{title}} {{personalized}}) → CSV upload (papaparse client-side, map columns to fields, preview table) → "Generate emails" → progress bar (poll leads statuses).
@@ -330,6 +364,223 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-15 — Signups are closed in Supabase, not behind a code in the browser
+
+The product is not open, so nobody new gets an account. This is enforced in **Supabase ->
+Authentication -> Providers -> Email -> "Allow new users to sign up", OFF**. Accounts are created by
+hand in the Supabase dashboard until launch. Everyone else belongs on the waitlist.
+
+**A client-side gate was built for this and then deleted, deliberately.** It asked for an owner code
+before rendering `/signin`. It worked and it was tested, and it was still the wrong tool: Vite inlines
+every `VITE_*` var into the bundle, so the code was readable in DevTools by anyone who looked - and
+had to be, since the page cannot check a code it does not hold. It bought a screen to maintain, a test
+suite to keep green, and a launch-day removal step, in exchange for stopping nobody who tried.
+
+**The rule it ran into is the one this file states everywhere else: a gate that runs in the browser is
+not a gate.** The Supabase toggle is enforced by a server we do not control and cannot be bypassed by
+reading our JavaScript. Same reasoning as the send-path and approval gates.
+
+**Do not rebuild the code gate.** If sign-in ever needs restricting beyond "signups off", the answer is
+server-side - an invite table with signed tokens, or an allowlist checked by `/server` - never a string
+compared in React.
+
+**Operational note:** turning signups off blocks US too. Create the accounts you need first, or add
+them later from the Supabase dashboard. `AuthPage` still offers its "No account yet ->" toggle; with
+signups off that path surfaces Supabase's own error. Left alone on purpose - it is honest, it is one
+toggle away from being correct again at launch, and hiding it would be a second thing to remember to
+undo.
+
+### 2026-08-15 — The landing page is the front door; sign-in is behind a click
+
+**Routing changed, and this is the load-bearing part.** `App.jsx` used to answer every signed-out
+request with `AuthPage`, so the first thing any visitor saw was a password box for a product they had
+not heard of. Now: `/` renders the landing page for a signed-out visitor, `/signin` renders `AuthPage`,
+and any *other* signed-out path also renders `AuthPage` — someone typing `/compose` is reaching for
+the app, so sign-in is the right answer there. Signed-in users are untouched: `/` still resolves to
+the app home, and `/signin` falls through to it rather than showing a login box to someone already
+logged in.
+
+**The waitlist stores addresses, which makes it the first PII table in the schema that has no owner.**
+Everything else is scoped `user_id = auth.uid()`; a waitlist signup is not a user and has no
+`auth.uid()`. So RLS is enabled with **no policy at all** — anon and authenticated are denied
+outright and only the service-role server reads it. Stricter than the rest of the schema, on purpose.
+
+**BOTH numbers on the page are COUNTED. Neither is read off the `seat` identity column.** The page
+states the number twice — "N already on the waitlist" at the top, "You're No. N" on the confirmation
+— and for a fresh joiner they must be equal. Getting there took three goes; do not undo any of them:
+
+1. **The counter is `88 + count(*)`, not `max(seat)`.** `INSERT ... ON CONFLICT DO NOTHING` calls
+   `nextval` **before** it detects the conflict, and sequences are non-transactional, so a repeat
+   submit that reaches the upsert **burns a number**. `max(seat)` then jumps by more than one for the
+   next real signup. A deleted row's seat is spent forever too, so `max(seat)` keeps counting
+   someone who left.
+2. **`joinWaitlist` looks the address up BEFORE inserting**, so a returning visitor never reaches the
+   upsert and never burns anything. The test asserts on the **absence of the write call**, not on the
+   response — a version that upserts anyway returns an identical body and is still wrong.
+3. **A person's number is their POSITION** — `88 + count(rows created at or before theirs)` — not
+   their `seat`. Guards 1 and 2 keep the sequence dense going forward but cannot repair a sequence
+   that has *already* gapped, and this one had: a real signup was shown "You're No. 93" under a
+   counter reading 91. Position is counted, so it cannot gap, and for the newest joiner it is the
+   same read as the counter — equal by construction rather than by luck.
+
+**The tradeoff, stated:** deleting an earlier row shifts everyone behind it down by one. That is the
+honest answer to "what number am I on this list", and beats a stable number that is visibly wrong.
+
+`seat` stays in the schema as the immutable record of join order (the go-live invite send wants it),
+but **nothing user-facing reads it.** Base 88 is a display offset, not a stored row.
+
+**Re-submitting an address is a success, not an error.** `unique(email)` plus an upsert returns the
+seat already held. A cold-email product that says "you're already on the list" in red text to someone
+trying to give it their email has misread the room — and distinguishing "new" from "repeat" in the
+response would leak whether an address is on the list to anyone who asks.
+
+**The email never appears in a log line, an error message, or any response body.** `POST /waitlist`
+returns `{seat, count}` and `GET /waitlist/count` returns `{count}`. Neither echoes the address back.
+This is the § Privacy rule applied to a table whose every row is PII.
+
+**The reply-rate numbers on the page are industry benchmarks, attributed, and are NOT ours.** The
+design handoff shipped "reply 2%" vs "reply 41%". Nothing supports 41% on a per-email basis, and it
+contradicts the ~1–5% this file already records under 2026-08-12. The page now shows **3% vs 11%**,
+both from the Instantly 2026 benchmark report (same denominator, replies ÷ emails sent), with a
+visible "industry benchmarks · 2025–26" label. **Never attribute a reply rate to Unique until we have
+measured one from real sends.** When we do, it will come from `replyWatcher`, and it will be ours to
+quote.
+
+**Still to build, deliberately not now:** the go-live onboarding mail to everyone on the list. That is
+bulk commercial email sent by *Unique*, not by a user through their own Gmail — a different path from
+everything in `/server` today. It needs a transactional provider (Resend/Postmark/SES), and it needs
+an unsubscribe: the 2026-08-06 decision drops the footer for 1:1 compose sends **only** and says to
+reinstate it for bulk. `waitlist.invited_at` exists so that send can be resumable and can never mail
+the same person twice.
+
+### 2026-08-13 — How the compose fidelity floor WILL be enforced server-side (decided, NOT built)
+
+**STATUS: design only. Phase 4 Blocker 2 is still OPEN.** This entry decides the approach; no code
+implements it. `routes/send.js` and `services/send.js` contain no mention of fidelity, so the floor
+is still a UI-only gate and a direct API call still walks straight past it. `TODO.md` is the live
+status and says the same — if this entry and `TODO.md` ever disagree again, `TODO.md` and the code
+are right.
+
+An earlier version of this heading said "is enforced" and opened with "Closes Phase 4 Blocker 2",
+which was false and is exactly the kind of thing that gets a bypassed gate shipped: whoever opens
+Phase 4 reads the Decisions log, believes the floor is hardened, and builds the queue on top of it.
+
+§ 3 makes 80 a floor in the compose flow, not a warning — a draft below it must not reach the send
+button. That is enforced only in `web/src/components/FidelityGate.jsx`. Same class as the
+trailing-slash route that once sent mail with no confirmation: a UI-only gate.
+
+**How the server learns the score.** Three options, and the first two fail:
+- *Client sends the score* — forgeable, so it is not a gate at all.
+- *Server re-scores at send* — an extra model call on every send, and it can disagree with the score
+  the user was shown, so the UI and the gate would enforce different numbers.
+- **Server signs the score when it generates the draft, and verifies at send.** No extra call, not
+  forgeable, and the number enforced is exactly the number displayed. This is the same HMAC posture
+  as `lib/unsubscribe.js`.
+
+**The signed artifact binds the score TO THE BODY IT SCORED** — HMAC over `{bodyHash, score}`. At send
+the server hashes the submitted body and compares.
+
+**The escape hatch falls out of that binding rather than being bolted on.** § 3 says that once the user
+edits the body the score is stale and the gate lifts, because the words are then theirs. So:
+- hash matches and score < 80 → **reject**. This is the model's untouched draft, and it does not
+  sound like the user.
+- hash does not match → the body was edited → the score is stale → **allow**. Never trap a user
+  behind a score the model cannot reach.
+- no token at all → **allow**. A first send that never went through generation is a human writing
+  their own letter, which is the case this product is least entitled to block.
+
+**No new environment variable.** The signing key is derived from an existing secret with a distinct
+purpose label rather than adding config every deployment must set before sends keep working. Key
+separation is preserved by the label — a derived sub-key does not grant the parent's other uses.
+
+**This does not weaken the confirmation gate, which remains the primary control.** Confirmation
+verifies the exact rendered content a human approved; this verifies the model's fidelity to their
+voice. Two different questions, both server-side now.
+
+### 2026-08-13 — The sign-off name is collected at signup, and enforced for everyone
+
+**The gap.** § 3 says every generated email must sign off as the user, by name, and treats a missing
+sign-off as a guardrail violation. The only deterministic enforcement is `findMissingSignoff()`, which
+returns `[]` when `signoff_styles` is empty — it cannot match a closing against a list that does not
+exist. So a brand-new user got **no sign-off enforcement at all**, and it compounded: a new user
+usually has no exemplars either, so the prompt's fallback pointed at example emails that were not in
+the prompt. The guarantee was strongest for established users and weakest for first-time senders, and
+the failure was silent — an unsigned letter went out under their name with no violation recorded.
+
+**The fix: `profiles.full_name`, collected as a REQUIRED field at account creation** (migration 006).
+This is the authoritative sign-off name. Chosen over deriving it from Google OAuth or the email
+local-part because it is simpler and more accurate — an email local-part is wrong often enough to be
+embarrassing on a cold email, and OAuth adds a data dependency for something the user can just type.
+
+**Signup stays minimal.** Full name is the ONLY new required field. Do NOT add company, role, or
+anything else to signup — collect those later, post-signup, if ever. Onboarding friction hits new
+users hardest, and they are exactly the population this decision exists to protect.
+
+**Enforcement is uniform, and that is the whole point.** `findMissingSignoff` checks the name for
+EVERY user, including one with no styles and no exemplars. The floor: **the name must appear in the
+sign-off region of the body.** Style matching stays as an ADDITIONAL check where `signoff_styles`
+exists. Enforcement must never again be weaker for a new user than for an established one.
+
+**Legacy accounts, and why this does not reintroduce the gap.** Pre-006 rows have no name, so the
+column is nullable in the DB — a name cannot be invented, and a `NOT NULL` would break the existing
+`auth.users` trigger. Those users are **prompted for it on next login**, and until they answer the
+check **falls back to the style-based test, never crashing and never blocking a send**. This is safe
+precisely because a legacy account is by definition an established one with `signoff_styles` — the
+population that already had enforcement. Nobody ends up worse off than today, and every new user is
+strictly better. **A null name must never throw on the send path.**
+
+The 002 trigger is extended to populate `full_name` from the signup metadata, so the name arrives with
+the row rather than needing a second write. Route: `PATCH /me` sets the name, used by the backfill
+prompt.
+
+### 2026-08-12 — Batch variety, and the outcome-adaptation loop it feeds
+
+**Two features, one now and one after Phase 4. The first must not ship without the second's
+groundwork, because that groundwork cannot be added retroactively.**
+
+**NOW — batch variety.** Nothing in a generation prompt knows what the other letters in the batch
+said. A measured batch opened 4 of 6 letters with the same sentence and shared five phrases across
+all six. Each prompt must receive the openers and CTA forms already used in this run and pick a
+different construction — **drawn from the user's own `sentence_starters` and `how_they_ask`, never
+invented.** Variety within their voice, not variety away from it.
+
+**NOW — variant tagging (`leads.variant_json`, migration 005).** Record which variant each letter
+used: `{opener_starter, cta_form, length_band, profile_version}`. **Nothing reads it yet.** It exists
+because every letter sent before the adaptation loop is otherwise a lost data point — reconstructing
+which pattern a body used by parsing it after the fact is lossy and cannot recover a distinction the
+generator made but never wrote down. `profile_version` is included because variant performance is not
+comparable across a re-synced profile.
+
+This stores references to the user's own profile entries, not new content. `generated_body` is
+already in this table, so it is not a new exposure class.
+
+**AFTER PHASE 4 — the adaptation loop.** Reply outcomes bias future variant selection: what lands
+gets reused more. Blocked until `replyWatcher` exists, because nothing currently writes `replied`.
+
+**The statistics are hostile and the design must answer them.** Cold reply rates run ~1–5%;
+separating a 3% variant from a 5% one takes hundreds of sends per variant. A campaign of 50 teaches
+almost nothing, and reinforcing 1-reply-out-of-3 is reinforcing noise — which compounds, because the
+"winner" then gets used more, earns more replies by volume, and looks even more like a winner.
+Required guards:
+- a minimum sample per variant before any nudge;
+- a floor that never lets a variant go extinct — always keep exploring;
+- treat the signal as a weak prior, never a rule.
+This is a multi-armed bandit; Thompson sampling handles the small-sample explore/exploit tension and
+degrades gracefully on thin data. **Adaptation must never collapse variety — that is the very problem
+the variety work exists to fix.**
+
+**Confounding, stated plainly:** a reply depends far more on WHO was emailed than on which opener was
+used. Lead quality is the dominant variable. Attributing a reply to sentence construction is a strong
+causal claim from weak evidence, and the guards above are what keep it honest.
+
+**Voice fidelity outranks reply rate.** Reinforcement selects among the user's OWN patterns and never
+invents a high-performing one. Optimising toward whatever gets replies and away from sounding like
+them loses the thing the product is for.
+
+Note this is the second adaptation loop. `learned_corrections` learns from the user's EDITS ("that is
+not how I would put it"); this learns from OUTCOMES ("that worked"). They are complementary and must
+not be merged.
 
 ### 2026-08-12 — Replicate the voice, not the typos
 
@@ -586,6 +837,14 @@ Why not upgrade: `googleapis@173.0.0` clears `uuid` but pulls `gaxios@7.1.3` →
 **Revisit when:** googleapis clears the `uuid` advisory without dragging in the `gaxios@7` chain, or `brace-expansion` ships a 1.x/2.x backport. Not before. Do not "fix" this with `npm audit fix --force`.
 
 ## Rules
+- **This is a platform, not one person's tool. Every feature must work for a user whose voice
+  profile is thin or empty.** WitWeb / USC / El Camino is demo seed data belonging to one account —
+  it must never appear in source, defaults, prompts or fallbacks. A new user signs up with few sent
+  emails, so `sentence_starters`, `signoff_styles`, `how_they_ask`, `typical_length_words` and
+  `exemplars` may each be missing, empty, null or the wrong type, and a user may delete their
+  exemplars in Settings at any time. Nothing may throw, and nothing may invent a construction the
+  user does not actually use in order to fill a gap — degrade to less personalisation, never to
+  fabricated personality. **Every generation feature ships with a sparse-profile test.**
 - No TypeScript, no Next.js, no ORM (use supabase-js / raw SQL).
 - **Testing is mandatory:** Phase 1 sets up vitest (server) + eslint (both apps) with npm scripts: `npm run test`, `npm run lint`, `npm run check` (runs both + `node --check` on entry files). Every feature ships with tests for its service functions (mock Gmail/Anthropic/Supabase calls — never hit real APIs in tests). The checker agent depends on these scripts existing.
 - **Agent workflow:** all features are built via the builder/checker loop defined in `.claude/agents/` and `.claude/commands/build-loop.md`. The builder never runs tests; the checker never edits code.

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import request from 'supertest';
+
+import { useSharedTestServer } from './helpers/testServer.js';
 
 const { oauthClient, gmailApi, OAuth2, gmailFactory } = vi.hoisted(() => {
   const oauthClient = {
@@ -138,6 +139,14 @@ function allLogCalls() {
   return [...logger.info.mock.calls, ...logger.warn.mock.calls, ...logger.error.mock.calls];
 }
 
+// One server for the whole file: 11 requests, well inside the app's 100-per-60s
+// rate limit. See helpers/testServer.js for why per-request binds were a problem.
+const httpRequest = useSharedTestServer(createApp);
+
+function authed(method, path) {
+  return httpRequest(method, path).set(...AUTH_HEADER);
+}
+
 beforeEach(() => {
   for (const key of ENV_KEYS) envBackup[key] = process.env[key];
 
@@ -236,10 +245,12 @@ describe('sendEmail — recording what we sent', () => {
   it('does not change the HTTP response when the send_log write fails', async () => {
     upsert.mockRejectedValue(new Error('database is down'));
 
-    const res = await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({ to: TO, subject: SUBJECT, body: BODY, confirmed: true });
+    const res = await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      confirmed: true
+    });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ messageId: 'msg-1', threadId: OURS });
@@ -333,10 +344,7 @@ describe('sendEmail — follow-up in an existing thread', () => {
  */
 describe('POST /api/send — a follow-up is still gated', () => {
   function postSend(payload) {
-    return request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send(payload);
+    return authed('post', '/api/send').send(payload);
   }
 
   it('400s a follow-up with confirmed omitted, and never calls Gmail send', async () => {
@@ -428,17 +436,14 @@ describe('POST /api/send — a follow-up is still gated', () => {
 
 describe('follow-up logging', () => {
   it('never logs the recipient, subject or body', async () => {
-    await request(createApp())
-      .post('/api/send')
-      .set(...AUTH_HEADER)
-      .send({
-        to: TO,
-        subject: SUBJECT,
-        body: BODY,
-        threadId: OURS,
-        inReplyTo: PARENT_MESSAGE_ID,
-        confirmed: true
-      });
+    await authed('post', '/api/send').send({
+      to: TO,
+      subject: SUBJECT,
+      body: BODY,
+      threadId: OURS,
+      inReplyTo: PARENT_MESSAGE_ID,
+      confirmed: true
+    });
 
     const calls = allLogCalls();
 

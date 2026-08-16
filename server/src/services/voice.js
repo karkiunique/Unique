@@ -277,7 +277,9 @@ export async function loadProfileWithExemplars(userId) {
     exemplars = [];
   }
 
-  return { profileJson: data.profile_json ?? {}, exemplars };
+  // The version travels with the profile because a generated letter records which
+  // profile wrote it (leads.variant_json, migration 005).
+  return { profileJson: data.profile_json ?? {}, exemplars, version: data.version ?? null };
 }
 
 /** Ingest -> analyse -> save. Used by POST /voice/generate and the OAuth callback. */
