@@ -2409,3 +2409,611 @@ a {
     gap: 8px;
   }
 }
+
+/* ==========================================================================
+   Landing / waitlist page (Decisions, 2026-08-15)
+
+   The public front page. Broadsheet furniture — square corners, rules instead of
+   shadows, one editorial red — reusing the tokens and the shared .kicker /
+   .wordmark / .linkbtn / .stamp classes defined above rather than restating them.
+   ========================================================================== */
+
+/* Generic, not landing-specific: a label that belongs to a control but does not
+   need to be seen next to it. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ico.red {
+  color: var(--red);
+}
+
+.ico.green {
+  color: var(--green);
+}
+
+.lp {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 46px;
+}
+
+/* ---- masthead ---- */
+.lp-mast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 0 16px;
+  border-bottom: 1.5px solid var(--ink);
+}
+
+.lp-mast .wordmark {
+  font-size: 26px;
+}
+
+.lp-mast .rt {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.dateline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* ---- the one button style this page adds: solid red, mono, square ---- */
+.btn-lite {
+  background: var(--red);
+  border: 1.5px solid var(--red);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 14px 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  transition: transform 0.08s, background 0.12s;
+}
+
+.btn-lite:hover {
+  background: var(--red-deep);
+  border-color: var(--red-deep);
+}
+
+.btn-lite:active {
+  transform: translate(1px, 1px);
+}
+
+.btn-lite:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---- hero ---- */
+.hero {
+  padding: 54px 0 46px;
+  border-bottom: 1.5px solid var(--ink);
+  text-align: center;
+}
+
+.hero .kicker {
+  margin-bottom: 22px;
+}
+
+.hero h1 {
+  font-size: 96px;
+  line-height: 0.92;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  margin: 0 auto;
+  max-width: 1000px;
+}
+
+.hero h1 em {
+  font-style: italic;
+  color: var(--red);
+}
+
+.hero .sub {
+  font-size: 22px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 620px;
+  margin: 22px auto 0;
+}
+
+.hero .cta {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
+.hero .proof {
+  display: flex;
+  gap: 30px;
+  justify-content: center;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
+.hero .proof .p {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero .proof .p .ico {
+  font-size: 14px;
+}
+
+/* ---- the live counter ---- */
+.counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 26px auto 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border: 1.5px solid var(--ink);
+  padding: 9px 16px;
+  background: var(--paper-lift);
+}
+
+.counter b {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--red);
+  text-transform: none;
+}
+
+.dotpulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 0 rgba(204, 58, 28, 0.5);
+  animation: pulse 1.8s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(204, 58, 28, 0.5);
+  }
+
+  70% {
+    box-shadow: 0 0 0 7px rgba(204, 58, 28, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(204, 58, 28, 0);
+  }
+}
+
+/* ---- section label bar ---- */
+.secbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 40px 0 20px;
+  gap: 20px;
+}
+
+.secbar h2 {
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.secbar h2 em {
+  font-style: italic;
+  color: var(--red);
+}
+
+/* ---- the five steps ---- */
+.steps {
+  border-top: 1.5px solid var(--ink);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 96px 1fr 300px;
+  gap: 34px;
+  padding: 30px 0;
+  border-bottom: 1px solid var(--rule);
+  align-items: start;
+}
+
+.step .no {
+  font-family: var(--font-serif);
+  font-size: 60px;
+  line-height: 0.8;
+  color: var(--red);
+  font-weight: 300;
+}
+
+.step .no .lab {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 12px;
+}
+
+.step h3 {
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+
+.step h3 em {
+  font-style: italic;
+  color: var(--red);
+}
+
+.step p {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 560px;
+}
+
+.step .aside {
+  border-left: 1.5px solid var(--ink);
+  padding: 2px 0 2px 20px;
+}
+
+.step .aside .k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 8px;
+}
+
+/* ---- aside widgets ---- */
+.miniclip {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 15px;
+  border-bottom: 2px solid var(--red);
+  padding: 1px 3px 2px;
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.layerrow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.layer .n {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--red);
+  color: var(--red);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bar .row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
+  gap: 10px;
+}
+
+.bar .track + .row {
+  margin-top: 6px;
+}
+
+.bar .track {
+  height: 9px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+}
+
+.bar .fill {
+  height: 100%;
+  background: var(--red);
+}
+
+/* The attribution on the benchmark bars. These figures are the industry's, not
+   ours, and the page must keep saying so — see Decisions, 2026-08-15. */
+.barsrc {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 10px;
+}
+
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.pipeline .node {
+  border: 1.5px solid var(--ink);
+  padding: 5px 9px;
+  background: var(--paper-lift);
+}
+
+.pipeline .node.red {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.pipeline .ar {
+  color: var(--red);
+}
+
+/* ---- waitlist block, inverted ---- */
+.join {
+  background: var(--ink);
+  color: var(--paper);
+  margin: 56px 0;
+  padding: 52px 56px;
+  position: relative;
+}
+
+.join::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(241, 233, 214, 0.28);
+  pointer-events: none;
+}
+
+.join .kicker {
+  color: #e0a08c;
+}
+
+.join h2 {
+  color: var(--paper);
+  font-size: 46px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  margin: 12px 0 0;
+  line-height: 1.02;
+}
+
+.join h2 em {
+  font-style: italic;
+  color: #ef8a6e;
+}
+
+.join p {
+  color: #d8ceba;
+  font-size: 18px;
+  max-width: 520px;
+  margin: 14px 0 0;
+}
+
+.join form {
+  display: flex;
+  gap: 12px;
+  margin-top: 26px;
+  max-width: 560px;
+  flex-wrap: wrap;
+}
+
+.join input {
+  flex: 1;
+  min-width: 240px;
+  border: none;
+  border-bottom: 1.5px solid rgba(241, 233, 214, 0.4);
+  background: transparent;
+  color: var(--paper);
+  font-family: var(--font-serif);
+  font-size: 19px;
+  padding: 10px 2px;
+}
+
+.join input::placeholder {
+  color: rgba(241, 233, 214, 0.45);
+  font-style: italic;
+}
+
+.join input:focus {
+  outline: none;
+  border-color: #ef8a6e;
+}
+
+.join .fine {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(241, 233, 214, 0.5);
+  margin-top: 18px;
+}
+
+.join .join-error {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ef8a6e;
+  margin-top: 12px;
+}
+
+.join .jcount {
+  margin-top: 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d8ceba;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.join .jcount b {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: #ef8a6e;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.joined {
+  margin-top: 24px;
+}
+
+.joined .stamp {
+  border-color: #ef8a6e;
+  color: #ef8a6e;
+  background: rgba(239, 138, 110, 0.08);
+}
+
+.joined p b {
+  color: var(--paper);
+  font-weight: 500;
+}
+
+.lp-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 26px 0 46px;
+  border-top: 1.5px solid var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .lp {
+    padding: 0 22px;
+  }
+
+  .hero h1 {
+    font-size: 60px;
+  }
+
+  .step {
+    grid-template-columns: 60px 1fr;
+    gap: 20px;
+  }
+
+  .step .no {
+    font-size: 40px;
+  }
+
+  /* The aside drops below the prose, so its left rule becomes a top rule. */
+  .step .aside {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid var(--rule);
+    padding: 16px 0 0;
+  }
+
+  .join {
+    padding: 36px 24px;
+  }
+
+  .join h2 {
+    font-size: 34px;
+  }
+
+  .dateline,
+  .lp-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* The masthead CTA wraps to two lines at this width and crowds the wordmark.
+     It is also the one CTA that earns nothing here: the masthead does not stick,
+     so it scrolls away, and the hero button sits a few hundred pixels below it.
+     Sign-in stays — it is the only route into the app. */
+  .lp-mast .btn-lite {
+    display: none;
+  }
+
+  .hero h1 {
+    font-size: 44px;
+  }
+
+  .hero .sub {
+    font-size: 19px;
+  }
+
+  .hero .proof {
+    gap: 14px;
+  }
+}

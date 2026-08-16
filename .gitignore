@@ -37,3 +37,4 @@ files.zip
 # third-party personal data (CLAUDE.md § Privacy). Never commit one.
 *-leads.csv
 *-test-leads.csv
+.gstack/

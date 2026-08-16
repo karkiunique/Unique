@@ -4,6 +4,7 @@ import AuthPage from './pages/AuthPage.jsx';
 import CampaignBuilderPage from './pages/CampaignBuilderPage.jsx';
 import CampaignsPage from './pages/CampaignsPage.jsx';
 import ComposePage from './pages/ComposePage.jsx';
+import LandingPage from './pages/LandingPage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
 import ThreadsPage from './pages/ThreadsPage.jsx';
 import UnsubscribePage, { unsubscribeTokenFromPath } from './pages/UnsubscribePage.jsx';
@@ -26,6 +27,11 @@ const PAGES = {
 // One opened campaign. Matched here rather than in the page so the pages stay
 // free of window.location, exactly as the rest of the app is.
 const OPEN_CAMPAIGN = /^\/campaigns\/([^/]+)$/;
+
+// The public front door, and the one path that opts into the password box.
+// Decisions, 2026-08-15: a stranger meets the product, not a login form.
+const LANDING_PATH = '/';
+const SIGNIN_PATH = '/signin';
 
 function currentPath() {
   try {
@@ -113,9 +119,20 @@ export default function App() {
     );
   }
 
-  if (!session) return <AuthPage />;
+  // Signed out: the landing page at `/`, sign-in everywhere else. Someone typing
+  // `/compose` is reaching for the app, so the password box is the right answer
+  // there — it is only the front door that must not be one.
+  //
+  // Nothing gates this route in the client. Who may hold an account is decided by
+  // Supabase, server-side (Decisions, 2026-08-15) — a code checked in the browser
+  // ships in the bundle and enforces nothing.
+  if (!session) return path === LANDING_PATH ? <LandingPage /> : <AuthPage />;
 
-  const { Page, shellPath, campaignId } = resolveRoute(path);
+  // Signed in, so `/signin` is a stale link or a back button. Resolve it as the
+  // app home rather than showing a login form to someone already logged in.
+  const { Page, shellPath, campaignId } = resolveRoute(
+    path === SIGNIN_PATH ? LANDING_PATH : path
+  );
 
   return (
     <Shell email={session?.user?.email} path={shellPath}>
