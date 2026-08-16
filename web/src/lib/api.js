@@ -62,5 +62,8 @@ export async function apiFetch(path, options = {}) {
 export const api = {
   get: (path, options) => apiFetch(path, { ...options, method: 'GET' }),
   post: (path, body, options) => apiFetch(path, { ...options, method: 'POST', body }),
-  patch: (path, body, options) => apiFetch(path, { ...options, method: 'PATCH', body })
+  patch: (path, body, options) => apiFetch(path, { ...options, method: 'PATCH', body }),
+  // PUT, not PATCH: the standing target is replaced wholesale, so an omitted
+  // criterion means "no longer a constraint" rather than "leave it alone".
+  put: (path, body, options) => apiFetch(path, { ...options, method: 'PUT', body })
 };

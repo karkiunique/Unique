@@ -42,7 +42,7 @@ function clampIndex(index, total) {
   return index > total - 1 ? total - 1 : index;
 }
 
-export default function ReviewDeck({ leads, startLeadId, onClose, onChanged, onShown }) {
+export default function ReviewDeck({ leads, startLeadId, onClose, onChanged, onShown, onReject }) {
   const deck = Array.isArray(leads) ? leads.filter((lead) => typeof lead?.id === 'string') : [];
   const total = deck.length;
 
@@ -242,10 +242,14 @@ export default function ReviewDeck({ leads, startLeadId, onClose, onChanged, onS
           onSave={letter.saveEdits}
           onRedraft={letter.redraft}
           onClose={onClose}
+          // Optional, and passed the id of the letter ON SCREEN — the same rule
+          // that governs approval: never act on a letter that is not displayed.
+          onReject={typeof onReject === 'function' ? () => onReject(currentId) : undefined}
           canApprove={canApprove}
           canEdit={canEdit && !editing}
           canSave={canEdit && letter.dirty && written}
           canRedraft={showing && !letter.busy}
+          canReject={showing && !letter.busy}
           busy={letter.busy}
           atFirst={position === 0}
           atLast={atLast}

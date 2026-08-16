@@ -17,10 +17,12 @@ export default function DeckControls({
   onSave,
   onRedraft,
   onClose,
+  onReject,
   canApprove,
   canEdit,
   canSave,
   canRedraft,
+  canReject,
   busy,
   atFirst,
   atLast
@@ -57,6 +59,15 @@ export default function DeckControls({
           <Icon name={busy ? 'loader' : 'rotate-cw'} />
           Redraft
         </button>
+
+        {/* Only the daily queue passes onReject: a campaign lead the user
+            uploaded themselves has no targeting to teach. */}
+        {typeof onReject === 'function' ? (
+          <button type="button" className="btn plain" onClick={onReject} disabled={!canReject}>
+            <Icon name="eye-off" />
+            Not a fit
+          </button>
+        ) : null}
 
         <button type="button" className="linkbtn" onClick={onClose}>
           Close
