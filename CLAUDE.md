@@ -66,7 +66,12 @@ APOLLO_API_KEY=
 TAVILY_API_KEY=
 REDIS_URL=redis://localhost:6379
 APP_URL=http://localhost:5173
+POSTMARK_API_TOKEN=
+POSTMARK_FROM_EMAIL=
 ```
+`POSTMARK_*` sends SYSTEM mail from Unique — the daily "drafts ready" notice, and the waitlist
+go-live invite. It is never used to mail a prospect: prospect mail goes through the user's own Gmail
+and nowhere else. See Decisions, 2026-08-16.
 
 ## Supabase schema (migration 001 — build exactly this)
 ```sql
@@ -170,6 +175,54 @@ create table waitlist (
 -- The displayed count is max(seat) (88 when empty), so the counter and the seat are the same number
 -- by construction and cannot drift. The email is PII: never logged, never in an error message,
 -- never returned by any endpoint.
+create table lead_targets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  titles text[], seniority text[], industries text[],
+  company_size text,                 -- band, e.g. '11-50'
+  geos text[],
+  exclude_domains text[],            -- competitors, existing customers
+  exclude_industries text[],
+  fit_notes text,                    -- free text: what makes a good fit, in the user's words
+  daily_target int default 2 check (daily_target between 1 and 5),
+  active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(user_id)                    -- ONE standing target per user; see Decisions 2026-08-16
+);
+-- migration 008. The structured columns drive the vendor query; `fit_notes` goes to the model for
+-- the hook-quality judgement. `fit_notes` is user-authored content about their own business: treat
+-- it exactly like `campaigns.brief` — never logged, never in an error message.
+
+create table daily_runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  run_date date not null,
+  status text default 'running' check (status in ('running','delivered','empty','failed')),
+  candidates_screened int default 0,
+  leads_delivered int default 0,
+  notified_at timestamptz,           -- separate from status so a delivered-but-unnotified run
+                                     -- can be retried for the NOTIFICATION only
+  created_at timestamptz default now(),
+  unique(user_id, run_date)          -- THE idempotency key. Inserted BEFORE any work starts.
+);
+-- migration 008. The daily job is a cron, not a queue (Decisions 2026-08-16), so it has no broker
+-- to dedupe for it. This row is what stops a crashed-and-retried run double-drafting or
+-- double-notifying. 'empty' is a SUCCESS: no lead cleared the bar, which is a valid outcome.
+
+create table lead_rejections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  lead_id uuid references leads(id) on delete cascade,
+  reason text not null check (reason in ('wrong_role','wrong_company','bad_timing','weak_hook','other')),
+  note text,                         -- optional free text; user-authored, same rules as fit_notes
+  created_at timestamptz default now()
+);
+-- migration 008. Why the user rejected a lead, which is the highest-signal and cheapest feedback
+-- available at 2 leads/day. Feeds TARGETING only. This is a THIRD learning loop and must not be
+-- merged with the other two: `learned_corrections` learns how the user WRITES, the adaptation loop
+-- learns what GETS REPLIES, this learns WHO TO APPROACH.
+
 -- RLS: enable on all tables; policy = user_id = auth.uid() for select/insert/update/delete.
 -- Server uses service-role key and bypasses RLS.
 --
@@ -208,6 +261,11 @@ POST /waitlist               -> public route, no auth. {email} -> {seat, count}.
                                 signup. Strict rate limit. (added 2026-08-15)
 GET  /waitlist/count         -> public route, no auth. {count} for the live counter. Never returns
                                 an address. (added 2026-08-15)
+GET  /target                 -> the user's standing ICP, or null (added 2026-08-16)
+PUT  /target                 -> create or replace the standing ICP. One per user.
+GET  /queue                  -> today's drafts awaiting review: the leads the daily job delivered
+POST /leads/:id/reject       -> {reason, note?} record a rejection and set the lead 'failed'.
+                                Feeds targeting, never voice.
 ```
 
 ## Core implementation specs
@@ -307,7 +365,11 @@ DELIBERATE style (lowercase `i`, no caps after a dash), never for typos.
 - **Phase 4:** Send queue + worker + unsubscribe route/page + reply watcher + dashboard.
 - **Phase 5 (post-MVP, do not start unless told):** Apollo/Tavily real integration, Stripe, follow-up sequences, warm-intro network, Outlook.
 
-### Product direction — lead sourcing (recorded 2026-08-04, NOT scoped yet)
+### Product direction — lead sourcing (recorded 2026-08-04; SCOPED 2026-08-16, see Decisions)
+**Status:** this is now scoped as the daily draft queue — see Decisions, 2026-08-16, which supersedes
+the "do not build" line at the end of this section and sets the gates, the ICP model, the cron-not-
+queue choice and the Stage A / Stage B split. The source notes below still stand as written,
+including the LinkedIn one, which is now a settled rejection rather than an open question.
 The intended end state is that a user does not upload a CSV at all: the app finds prospects, resolves
 their email, researches them, and sends a personalized email in the user's voice — all in-app.
 Sources, in rough order of how settled they are:
@@ -364,6 +426,105 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-16 — The daily draft queue: automate find/research/draft/notify, never the send
+
+**The shape.** A daily scheduled job finds up to ~2 solid leads per user against a standing ICP,
+researches each, drafts a letter in the user's voice, and emails the USER "your drafts are ready".
+The user reviews and sends each one themselves. **Nothing reaches a prospect without the user's
+explicit approval** — this does not weaken the per-lead approval decision (2026-08-08), it feeds it.
+Automation covers find → research → draft → notify. The send stays human, permanently.
+
+**"~2 a day" is a CEILING, NOT A QUOTA — this is the load-bearing rule.** If one lead clears the bar,
+deliver one. If none do, deliver none and say so. The moment the job is obliged to produce two, it
+starts admitting leads that fail the hook gate, and the queue fills with rejects — which is the exact
+failure this design exists to prevent. Expect to screen 10–20 candidates to yield 2; cost scales with
+candidates screened, not leads delivered.
+
+**A lead is SOLID only if it clears all eight gates.** Any single failure and it never reaches the
+queue:
+1. email **verified deliverable** — not catch-all, not unknown, not accept-all;
+2. not a role inbox (`ROLE_LOCAL_PARTS` in `recipientCheck.js` already lists them);
+3. not already in `leads` for this user;
+4. not on the user's `unsubscribes`;
+5. role matches the ICP;
+6. company matches the ICP;
+7. **a personalization hook exists** — at least one specific, recent, verifiable fact;
+8. the draft scores **≥80 fidelity** after at most one regeneration.
+
+**Gate 7 is the one that matters and the one most tools skip.** A verified email and a perfect title
+with nothing specific to say produces a generic letter, which is precisely what this product exists
+not to send. No hook means not solid, however good the firmographics look.
+
+**Gate 8 BLOCKS here, unlike the batch review screen.** § 3 has the batch flag a low-fidelity lead
+for review; this queue refuses it. With only two slots a day, a draft that does not sound like the
+user wastes half the day's value — the compose-flow reasoning, for the same reason.
+
+**Gate 1 does not reverse the 2026-08-05 decision, it applies it.** That decision rejected
+self-hosting SMTP `RCPT TO` probing, which remains rejected. A verification vendor runs it from
+reputation-managed IP pools; paying one is why it works. Bounces land on the user's OWN Gmail
+reputation, so at two sends a day a bounce is unaffordable.
+
+**Lead source: licensed API, never scraping — and the blocker is legal, not technical.**
+[Apollo's API terms](https://www.apollo.io/terms/api) §2 forbid sublicensing or distributing the API,
+and §3 forbids integrating it "with your product or services, unless Apollo has authorized or
+approved" it. One VoiceReach-held key serving many users is exactly that. §5(i) additionally bars use
+that "replicate[s] or compete[s] with any Apollo products" at Apollo's sole discretion — and Apollo
+sells outbound sequencing, so that risk is real even with authorization. §3 does contemplate written
+authorization; that conversation is open. **BYOK — the user connects their own account — is the
+fallback**, legally cleanest because they use their own license.
+Hunter was NOT verified (their terms URL 404s and search conflates hunter.io with the unrelated
+hunt.io). Do not quote Hunter's terms until someone has read the actual contract.
+
+**Scraping is rejected outright, not deferred.** Already recorded for LinkedIn on 2026-08-04. It does
+not become acceptable by being spread across more actors or agents — that changes who performs the
+violation, not whether it is one. At ~60 leads/month/user it would trade real legal liability and a
+permanent maintenance burden against changing markup for a saving of maybe $50–100/month. It also
+contradicts the product: a letter sold as "you wrote this" cannot rest on scraped provenance.
+
+**Cost is not the deciding factor and should not be used as one.** Verification runs ~$0.008/email,
+so under a dollar per user per month. The vendor's monthly floor and its licence dominate. Apollo
+gates API access behind its per-seat Professional tier, which is structurally wrong for a platform;
+Hunter's shared credit pool fits better, if its terms allow.
+
+**Targeting: one standing ICP per user, revisable, not one-shot.** `unique(user_id)` on
+`lead_targets`. Structured fields drive the vendor query; `fit_notes` goes to the model for gate 7.
+Negative criteria (`exclude_domains`, `exclude_industries`) are part of the target, not an
+afterthought — excluding competitors and existing customers removes a whole class of wrong lead.
+
+**Rejection reasons are a THIRD learning loop and must stay separate.** `learned_corrections` learns
+how the user WRITES; the outcome-adaptation loop (2026-08-12) learns what GETS REPLIES; this learns
+WHO TO APPROACH. Three different questions. 2026-08-12 already forbids merging the first two; this
+one joins that rule.
+
+**Daily leads live in a standing per-user "Daily" campaign**, get-or-created by the job.
+`leads.campaign_id` is nullable in the schema but `services/leads.js` always sets it, so inventing a
+null-campaign path would mean touching working code for no gain. The standing campaign also gives the
+review screen and the register something real to group by.
+
+**A cron, not BullMQ.** At 2 leads/user/day even 100 users is 200 leads — BullMQ exists for the SEND
+path, which needs 90–240s spacing, per-user daily limits and per-job retries. This job needs none of
+those, and avoiding it avoids Redis, which is not installed. Consequences that are NOT optional:
+- run it as a **Railway scheduled job**, not in-process `node-cron` — an in-process timer dies
+  silently on redeploy, mid-run;
+- **`daily_runs` is written BEFORE work starts**, and every stage is idempotent against it;
+- **`p-limit` concurrency**, as `generateBatch` already does — one user costs ~10–20 external calls.
+Revisit BullMQ when the run stops fitting its window, when per-step retries are needed, or past
+roughly 500 users.
+
+**The notification goes through Postmark, never the user's Gmail.** Gmail would email the user AS
+themselves, land in their own Sent folder, burn their daily send limit and pollute `send_log` — and
+it must keep working when Gmail is disconnected, which is exactly when they most need telling.
+**The notification carries counts and a link ONLY — never a draft body, never a prospect's name or
+address.** Putting draft content in it would route users' prospect data and AI-drafted bodies through
+a third party that has no business holding them, breaching § Privacy. The link goes to the app, where
+the content already lives. Same Postmark integration serves the waitlist go-live mail (2026-08-15).
+
+**Build order, split so the legal blocker gates only itself.** Stage A needs no vendor: schema,
+Postmark + notification, ICP settings UI, review queue (reuse `ReviewDeck`), and the daily job with
+the lead source STUBBED behind the existing `services/leads.js` interface — which already returns
+`{}` gracefully when keys are absent, exactly for this. Stage A is testable end to end on seeded
+leads. Stage B is the real source, verification and Tavily research, and waits on the licence answer.
 
 ### 2026-08-15 — Signups are closed in Supabase, not behind a code in the browser
 
