@@ -66,12 +66,23 @@ stated process, since the route list in that file **is** the contract. Record a 
   and the unique index on `(user_id, gmail_message_id)` is real, confirmed by an `on_conflict` probe
   that returned an FK violation (execute-time) rather than `42P10` (plan-time). `recordSend()` was
   also exercised end-to-end against the live DB: write, idempotent retry, and both register readers.
-  It works. **Migration 002's trigger was NOT verified** — `pg_catalog` is not reachable through
-  PostgREST. Run this in the SQL Editor if certainty is wanted:
-  ```sql
-  select tgname, tgenabled from pg_trigger
-  where tgrelid = 'auth.users'::regclass and not tgisinternal;
-  ```
+  It works.
+- **Migration 002's trigger IS VERIFIED** (2026-08-17), and so is 006's replacement of it. Reading
+  `pg_trigger` through PostgREST is still impossible — it answers `PGRST205` — so it was tested
+  FUNCTIONALLY instead, which is better evidence anyway: reading the catalog proves a trigger exists,
+  running one proves it works. A throwaway user was created through `auth.admin.createUser` with
+  `full_name` in the metadata, and:
+    - a `profiles` row appeared automatically  -> the 002 trigger fires;
+    - `email` carried through correctly;
+    - `full_name` came back as the metadata value -> the **006** version of `handle_new_user` is the
+      one installed, not the 002 version;
+    - deleting the auth user cascaded the `profiles` row away, leaving no orphan.
+  The probe user was removed. Re-run it the same way if the trigger is ever suspected again.
+- **Migration 006 was UNAPPLIED until 2026-08-17**, long after it merged to `main` in `b3b4734`.
+  `profiles.full_name` simply did not exist, so `PATCH /me` failed and the sign-off name was inert in
+  production while the code and the contract both said it worked. Found only because a script tried
+  to read the column. **A migration merged is not a migration applied** — check the live schema after
+  merging one, not just that the file is in the repo.
 
 **How work gets done here:** every feature goes through the builder → checker loop
 (`.claude/agents/`, `.claude/commands/build-loop.md`). Builder writes code and never runs anything;
