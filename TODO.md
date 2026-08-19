@@ -15,10 +15,15 @@ Two gate-integrity requirements, both recorded as dated decisions in CLAUDE.md. 
 cleanup.** Phase 4 is where sending becomes autonomous, and these are the two places where the
 human-approval guarantee can be silently lost. Do not treat them as follow-ups to fit in later.
 
-**BLOCKER 1 — every send MUST route through `selectSendableLeads`. Top wiring requirement of Phase 4.**
+**BLOCKER 1 — PARTLY CLOSED (2026-08-19).** `selectSendableLeads` now HAS a production caller:
+`services/leadSend.js` (`POST /leads/:id/send`) reads its letter through it and never queries
+`leads`, asserted on the call and mutation-verified. **Still open for the BULK path** — Phase 4's
+`POST /campaigns/:id/send` and `sendWorker.js` do not exist yet and must route through it too when
+they do. What follows is the original entry, still binding for those two.
+
 It is the server-side enforcement of "only `approved` leads may ever be sendable", fully tested and
-mutation-verified (three mutations kill it, including the full gate breach) — but it has **no
-production caller**. The tests prove the function behaves; nothing yet proves the send path uses it.
+mutation-verified (three mutations kill it, including the full gate breach) — and until 2026-08-19 it
+had **no production caller**. The tests prove the function behaves; nothing yet proves the send path uses it.
 
 **Building the Phase 4 queue without routing through it = autonomous sending with the approval gate
 bypassed.** That is not hypothetical here: this project already shipped a trailing-slash route
@@ -30,7 +35,12 @@ outcome**, because a re-query can return an identical result set while bypassing
 Outcome-based assertions are provably blind to this class of bug; that is exactly how the two
 regenerate-path owner filters survived their first mutation round in Loop 4.
 
-**BLOCKER 2 — harden the compose 80-point fidelity floor server-side, when the send path is touched.**
+**BLOCKER 2 — CLOSED FOR LEADS (2026-08-19), STILL OPEN FOR COMPOSE.** `POST /leads/:id/send`
+enforces the floor server-side by reading `leads.fidelity_score`, with `edited_body` as the escape
+hatch, mutation-verified. It needs no HMAC because a lead HAS a row; the signed-score design below
+exists for compose, whose draft lives only in the browser. Compose is still UI-only.
+
+**Original entry, still binding for the compose flow:**
 `web/src/components/FidelityGate.jsx` blocks a sub-80 draft from reaching the confirm step. Nothing in
 `routes/send.js` or `services/send.js` does, so the floor is bypassable by a direct API call.
 
