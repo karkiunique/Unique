@@ -267,8 +267,11 @@ GET  /waitlist/count         -> public route, no auth. {count} for the live coun
                                 an address. (added 2026-08-15)
 GET  /target                 -> the user's standing ICP, or null (added 2026-08-16)
 PUT  /target                 -> create or replace the standing ICP. One per user.
-GET  /queue                  -> drafts awaiting review from the daily job. NOT just today's: an
-                                unreviewed draft must not vanish at midnight. No bodies in the list
+GET  /queue                  -> drafts awaiting review from the daily job: status 'generated' OR
+                                'approved'. Approved-but-unsent MUST be included or a letter whose
+                                send failed after approval vanishes from the only screen that could
+                                retry it. NOT just today's: an unreviewed draft must not vanish at
+                                midnight. No bodies in the list
                                 (same LEAD_COLUMNS shape as campaigns) — the deck fetches each
                                 letter through GET /leads/:id, per the 2026-08-08 decision.
 POST /leads/:id/send         -> send ONE approved lead through the user's Gmail. Requires
@@ -439,6 +442,38 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-19 — The Send button: one letter, one decision, never a keystroke
+
+**The shape.** In the daily queue each letter is read, optionally edited, then **sent by hand**. One
+human decision per email. There is **no batch send, no "send all", no auto-send and no
+send-on-schedule**, and none may be added: the system's job ends at "a draft is ready and shown to a
+human", and the send is the human's. A batch button would not be a convenience, it would be a
+different product.
+
+**SEND IS NOT BOUND TO ANY KEY.** `Enter` approves and advances in the deck, and the 2026-08-09 entry
+already accepts that a held-down key can approve a letter someone skimmed. That tradeoff was made
+because **approval is reversible**. Sending is not — there is no unsend, and the letter goes out under
+the user's own name. So Send requires a deliberate click, and then a confirmation. Never wire it to a
+keystroke, however much faster the deck would feel.
+
+**Approval is folded into the send confirmation, and this does not weaken the 2026-08-08 gate.**
+The server still requires `approved`, and the client still sets it one lead at a time through
+`PATCH /leads/:id`. What changed is only that the human's explicit action is now *confirming the exact
+letter* rather than pressing a separate Approve button first — which is a **stronger** action, because
+the exact content is verified server-side on the way out. The old two-step remains for campaigns.
+
+**GET /queue therefore returns 'approved' as well as 'generated'.** Approve-then-send is two calls,
+and if the send fails between them the letter is `approved` and unsent. Filtering the queue to
+`generated` alone would strand it on the only screen that could retry.
+
+**Editing is a first-class action, not an escape hatch.** "Hands-on at the moment that matters" means
+the user can change the words, not merely accept or refuse them. The deck's `E`/Edit and Save stay
+prominent, and an edited body lifts the fidelity floor (§ 3) because the words are then theirs.
+
+**One confirmation dialog, reused.** `ConfirmSendDialog` gains an optional `leadId` and posts to
+`POST /leads/:id/send` instead of `POST /send`. A second confirmation UI would be a second thing to
+keep watertight, which is the reason that file gives for having one in the first place.
 
 ### 2026-08-19 — Sending one approved lead, and why Blocker 2 needs no HMAC here
 

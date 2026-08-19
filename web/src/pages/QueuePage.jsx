@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import ReviewDeck from '../components/ReviewDeck.jsx';
 import RejectReasonDialog from '../components/RejectReasonDialog.jsx';
+import ConfirmSendDialog from '../components/ConfirmSendDialog.jsx';
 import ErrorNotice from '../components/ErrorNotice.jsx';
 import { api } from '../lib/api.js';
 import { navigateTo } from '../lib/navigate.js';
@@ -27,6 +28,13 @@ export default function QueuePage() {
   // The lead the deck is asking us to reject; null when the dialog is closed.
   const [rejecting, setRejecting] = useState(null);
   const [rejectBusy, setRejectBusy] = useState(false);
+
+  // The letter being confirmed for sending: {id, to, subject, body}. Held whole
+  // rather than by id, because what the confirmation shows must be exactly what
+  // was on screen — re-fetching here would let a different letter be sent than
+  // the one the person just read.
+  const [sending, setSending] = useState(null);
+  const [sendPrep, setSendPrep] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +71,36 @@ export default function QueuePage() {
     } finally {
       setRejectBusy(false);
     }
+  }
+
+  /**
+   * Open the confirmation for one letter.
+   *
+   * Approval happens HERE, before the dialog, rather than as a separate button:
+   * the server requires `approved` (2026-08-08) and the human's explicit action is
+   * confirming the exact letter, which is the stronger of the two. If approval
+   * fails nothing is shown and nothing is sent.
+   */
+  async function beginSend(letter) {
+    const lead = leads.find((row) => row.id === letter.id);
+    if (!lead) return;
+
+    setSendPrep(letter.id);
+    setError(null);
+    try {
+      await api.patch(`/leads/${letter.id}`, { approve: true });
+      setSending({ id: letter.id, to: lead.email, subject: letter.subject, body: letter.body });
+    } catch (err) {
+      setError(err?.message || 'Could not prepare that letter for sending.');
+    } finally {
+      setSendPrep(null);
+    }
+  }
+
+  /** Sent for real. Drop it from the queue — it is no longer awaiting anything. */
+  function handleSent() {
+    setLeads((current) => current.filter((lead) => lead.id !== sending?.id));
+    setSending(null);
   }
 
   if (state === 'loading') {
@@ -127,8 +165,28 @@ export default function QueuePage() {
           onClose={() => navigateTo('/')}
           onChanged={load}
           onReject={(leadId) => setRejecting(leadId)}
+          onSend={beginSend}
         />
       )}
+
+      {sendPrep ? <p className="muted">Getting the letter ready…</p> : null}
+
+      {/* What this renders is what goes out: full recipient, subject and body, no
+          summary. Nothing is re-fetched or re-generated between the reading and
+          the sending. */}
+      {sending ? (
+        <ConfirmSendDialog
+          leadId={sending.id}
+          to={sending.to}
+          subject={sending.subject}
+          body={sending.body}
+          doneLabel="Back to the queue"
+          doneIcon="arrow-left"
+          onCancel={() => setSending(null)}
+          onSent={handleSent}
+          onWriteAnother={handleSent}
+        />
+      ) : null}
 
       {error ? (
         <p className="msg error" role="alert">

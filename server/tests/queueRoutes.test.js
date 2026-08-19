@@ -68,6 +68,10 @@ function builderFor(table) {
       query.filters[column] = value;
       return chain;
     },
+    in(column, values) {
+      query.filters[column] = values;
+      return chain;
+    },
     order() {
       return chain;
     },
@@ -193,7 +197,9 @@ describe('GET /api/queue', () => {
     const read = queries.find((q) => q.table === 'leads');
     expect(read.filters.user_id).toBe(OWNER);
     expect(read.filters.campaign_id).toBe('camp-daily');
-    expect(read.filters.status).toBe('generated');
+    // 'approved' as well as 'generated': a letter whose send failed after approval
+    // must not vanish from the only screen that could retry it.
+    expect(read.filters.status).toEqual(['generated', 'approved']);
   });
 
   it('returns no letter bodies in the list', async () => {

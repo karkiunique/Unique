@@ -19,9 +19,15 @@ import { DAILY_CAMPAIGN_NAME } from './dailyCampaign.js';
 const QUEUE_COLUMNS =
   'id, campaign_id, email, first_name, last_name, company, title, status, fidelity_score, created_at';
 
-// 'generated' only. 'approved' has been dealt with, 'rejected' was declined, and
-// anything sent is long past review.
-const AWAITING_REVIEW = 'generated';
+/**
+ * 'generated' AND 'approved'. Not 'generated' alone.
+ *
+ * Sending is approve-then-send, two calls, and if the send fails between them the
+ * letter is left `approved` and unsent. Filtering to `generated` would strand it
+ * on the only screen that could retry. 'rejected' was declined and anything 'sent'
+ * is long past review, so both stay out.
+ */
+const AWAITING_REVIEW = ['generated', 'approved'];
 
 /** The user's Daily campaign id, or null if the job has never run for them. */
 async function dailyCampaignId(userId) {
@@ -56,7 +62,7 @@ export async function getReviewQueue(userId) {
     // Redundant only if the campaign lookup above is correct, and a lead read is
     // not the place to start trusting a join.
     .eq('user_id', userId)
-    .eq('status', AWAITING_REVIEW)
+    .in('status', AWAITING_REVIEW)
     .order('created_at', { ascending: true });
 
   if (error) throw httpError(500, 'Could not read your queue');

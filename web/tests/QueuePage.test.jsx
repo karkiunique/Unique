@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -191,5 +191,102 @@ describe('rejecting a letter', () => {
 
     expect(apiPost).not.toHaveBeenCalled();
     expect(await screen.findByRole('heading', { name: '1 letter to review' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * THE SEND PATH (CLAUDE.md, Decisions 2026-08-19).
+ *
+ * The promise is that a person reads each letter and sends it themselves. These
+ * tests hold the three parts of that which are easiest to erode:
+ *   - there is NO batch send anywhere on the screen;
+ *   - Send is a CLICK and never a keystroke, because there is no unsend;
+ *   - what the confirmation shows is exactly what gets posted.
+ */
+describe('sending a letter', () => {
+  beforeEach(() => {
+    queueReturns([LEAD]);
+    apiPatch.mockResolvedValue({ id: 'lead-1', status: 'approved' });
+  });
+
+  it('offers no batch send, no send all, and no schedule', async () => {
+    render(<QueuePage />);
+    await screen.findByRole('button', { name: /Send this letter/ });
+
+    for (const forbidden of [/send all/i, /send everything/i, /send \d+ letters/i, /schedule/i, /auto.?send/i]) {
+      expect(screen.queryByRole('button', { name: forbidden })).not.toBeInTheDocument();
+    }
+  });
+
+  it('does NOT send on Enter — approval is reversible, a send is not', async () => {
+    render(<QueuePage />);
+    const deck = await screen.findByRole('region', { name: 'Review deck' });
+
+    deck.focus();
+    await userEvent.keyboard('{Enter}');
+    await userEvent.keyboard('{Enter}');
+
+    // Neither approved nor sent by keystroke.
+    expect(apiPatch).not.toHaveBeenCalled();
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it('says nothing about an Enter shortcut in the legend', async () => {
+    render(<QueuePage />);
+    await screen.findByRole('button', { name: /Send this letter/ });
+
+    const legend = screen.getByLabelText('Keyboard shortcuts');
+    expect(legend.textContent).not.toMatch(/Enter/);
+  });
+
+  it('approves then shows the exact letter before anything is sent', async () => {
+    render(<QueuePage />);
+    await userEvent.click(await screen.findByRole('button', { name: /Send this letter/ }));
+
+    // Approval is the precondition the server enforces; it is not the send.
+    await waitFor(() => expect(apiPatch).toHaveBeenCalledWith('/leads/lead-1', { approve: true }));
+    // Nothing has left yet.
+    expect(apiPost).not.toHaveBeenCalled();
+
+    // The confirmation shows the real recipient and the real words — scoped to the
+    // dialog, because the card behind it shows them too.
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm send' });
+    expect(within(dialog).getByText('dana@district.org')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Twelve schools, one rollout/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Chromebook rollout/)).toBeInTheDocument();
+  });
+
+  it('posts to the LEAD route with exactly what was confirmed', async () => {
+    apiPost.mockResolvedValue({ messageId: 'm1', threadId: 't1' });
+
+    render(<QueuePage />);
+    await userEvent.click(await screen.findByRole('button', { name: /Send this letter/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm send' });
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /Send from my Gmail/ }));
+
+    await waitFor(() => {
+      const call = apiPost.mock.calls.find(([path]) => String(path).includes('/send'));
+      expect(call[0]).toBe('/leads/lead-1/send');
+      expect(call[1]).toMatchObject({
+        confirmed: true,
+        subject: 'Twelve schools, one rollout'
+      });
+      expect(call[1].body).toContain('Chromebook rollout');
+      // The lead route derives the recipient from the row, never the client.
+      expect(call[1]).not.toHaveProperty('to');
+    });
+  });
+
+  // "Keep editing" rather than "Cancel": backing out of a send should land you
+  // where you can change the words, which is the hands-on half of the promise.
+  it('can be backed out of at the confirmation without sending', async () => {
+    render(<QueuePage />);
+    await userEvent.click(await screen.findByRole('button', { name: /Send this letter/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm send' });
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /Keep editing/ }));
+
+    expect(apiPost.mock.calls.filter(([p]) => String(p).includes('/send'))).toHaveLength(0);
   });
 });

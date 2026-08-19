@@ -25,6 +25,11 @@ import { api } from '../lib/api.js';
  */
 export default function ConfirmSendDialog({
   to,
+  // Present only for a daily-queue letter. It switches the POST to the LEAD send
+  // route, where the approval gate and the fidelity floor are enforced against the
+  // stored row. Everything rendered above stays byte-identical either way: one
+  // confirmation UI, because a second would be a second thing to keep watertight.
+  leadId,
   recipientName,
   subject,
   body,
@@ -54,7 +59,16 @@ export default function ConfirmSendDialog({
       if (typeof threadId === 'string' && threadId !== '') payload.threadId = threadId;
       if (typeof inReplyTo === 'string' && inReplyTo !== '') payload.inReplyTo = inReplyTo;
 
-      const sent = await api.post('/send', payload);
+      // The lead route derives the recipient from the row rather than the body, so
+      // `to` is not sent: the address a client supplied could differ from the one
+      // that was approved.
+      const sent = leadId
+        ? await api.post(`/leads/${encodeURIComponent(leadId)}/send`, {
+            subject,
+            body,
+            confirmed: true
+          })
+        : await api.post('/send', payload);
       setResult(sent ?? {});
       if (typeof onSent === 'function') onSent(sent ?? {});
     } catch (err) {

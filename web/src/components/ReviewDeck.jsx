@@ -42,7 +42,15 @@ function clampIndex(index, total) {
   return index > total - 1 ? total - 1 : index;
 }
 
-export default function ReviewDeck({ leads, startLeadId, onClose, onChanged, onShown, onReject }) {
+export default function ReviewDeck({
+  leads,
+  startLeadId,
+  onClose,
+  onChanged,
+  onShown,
+  onReject,
+  onSend
+}) {
   const deck = Array.isArray(leads) ? leads.filter((lead) => typeof lead?.id === 'string') : [];
   const total = deck.length;
 
@@ -148,7 +156,10 @@ export default function ReviewDeck({ leads, startLeadId, onClose, onChanged, onS
 
     if (event.key === 'Enter') {
       event.preventDefault();
-      approveAndAdvance();
+      // On a SEND deck, Enter does nothing at all. Approval there is folded into
+      // the send confirmation, so binding Enter would put a keystroke on the path
+      // to somebody's inbox — and there is no unsend (Decisions, 2026-08-19).
+      if (typeof onSend !== 'function') approveAndAdvance();
       return;
     }
 
@@ -245,11 +256,19 @@ export default function ReviewDeck({ leads, startLeadId, onClose, onChanged, onS
           // Optional, and passed the id of the letter ON SCREEN — the same rule
           // that governs approval: never act on a letter that is not displayed.
           onReject={typeof onReject === 'function' ? () => onReject(currentId) : undefined}
+          // Handed the letter ON SCREEN, and only once it has actually loaded —
+          // the same rule that governs approval, applied to the irreversible action.
+          onSend={
+            typeof onSend === 'function'
+              ? () => onSend({ id: currentId, subject: letter.subject, body: letter.body })
+              : undefined
+          }
           canApprove={canApprove}
           canEdit={canEdit && !editing}
           canSave={canEdit && letter.dirty && written}
           canRedraft={showing && !letter.busy}
           canReject={showing && !letter.busy}
+          canSend={showing && !letter.busy && written}
           busy={letter.busy}
           atFirst={position === 0}
           atLast={atLast}
