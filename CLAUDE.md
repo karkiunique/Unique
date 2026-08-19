@@ -271,6 +271,10 @@ GET  /queue                  -> drafts awaiting review from the daily job. NOT j
                                 unreviewed draft must not vanish at midnight. No bodies in the list
                                 (same LEAD_COLUMNS shape as campaigns) — the deck fetches each
                                 letter through GET /leads/:id, per the 2026-08-08 decision.
+POST /leads/:id/send         -> send ONE approved lead through the user's Gmail. Requires
+                                {confirmed:true, subject, body} matching EXACTLY what the server
+                                would send; enforces the fidelity floor server-side. The only path
+                                from an approved lead to an inbox. (added 2026-08-19)
 POST /leads/:id/reject       -> {reason, note?} record a rejection and set the lead 'rejected'
                                 (migration 009). NOT 'failed': that means GENERATION failed and is
                                 in leadRegenerate's REDRAFTABLE_FROM, so it would make a letter the
@@ -435,6 +439,48 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-19 — Sending one approved lead, and why Blocker 2 needs no HMAC here
+
+**The gap.** The daily queue drafted letters and the review deck approved them, and then nothing.
+`POST /send` is the compose path: it takes `to`, `subject` and `body` from the request and knows
+nothing about leads, so an approved lead had no route to an inbox at all. The loop the whole feature
+exists for — job drafts, human reviews, human sends — was missing its last step.
+
+**`POST /leads/:id/send` sends exactly one lead.** Not a batch. The product promise is that a person
+reads each letter and sends it themselves, and a route that sends many is a different promise. Bulk
+campaign sending remains Phase 4 and remains behind BLOCKER 1.
+
+**It routes through `selectSendableLeads` and does NOT re-query `leads`.** This is BLOCKER 1's
+requirement applied to the first real send path: the gate is "only `approved` leads are ever
+sendable", and a route that re-queries can produce an identical result set while bypassing it
+entirely. The test asserts on the CALL, not the outcome, for exactly that reason.
+
+**BLOCKER 2 IS CLOSED ON THIS PATH, AND WITHOUT THE SIGNED SCORE.** The 2026-08-13 entry designs an
+HMAC over `{bodyHash, score}` because the *compose* flow has no row to read: the draft exists only in
+the browser, so the server cannot know its score without being told, and being told is forgeable.
+**A lead is not in that position.** `leads.fidelity_score` is already server-side, written by the
+server at generation, and never touched by the client. So the floor is enforced by reading the row —
+no token, no key derivation, no new failure mode.
+
+The escape hatch falls out just as cleanly. § 3 says an edited body makes the score stale and lifts
+the gate, because the words are then the user's. On a lead that is simply `edited_body is not null`:
+- untouched draft, `fidelity_score < 80` → **refuse**;
+- `edited_body` present → the human wrote it → **allow**, whatever the stored score says;
+- `fidelity_score` null → never scored → **refuse**, because unscored is not passing.
+
+**The HMAC design still stands for the compose flow**, which has no row. Two paths, two mechanisms,
+one rule. Do not "unify" them by adding a token to this path: it would add a signing key and a
+verification step to buy something a column already gives.
+
+**Confirmation is of the EXACT rendered content, verified server-side.** The request carries the
+subject and body the human saw; the server renders what it would actually send from the row and
+refuses if they differ. Confirming one letter while a different one goes out is the failure the
+§ Security non-negotiable exists to prevent, and a boolean `confirmed: true` alone cannot prevent it.
+
+**The lead moves to `sent` and gets a `send_log` row**, so the register shows it and a repeat call
+cannot send twice — a lead already `sent` is no longer `approved`, so `selectSendableLeads` excludes
+it and the second attempt refuses.
 
 ### 2026-08-16 — The daily draft queue: automate find/research/draft/notify, never the send
 

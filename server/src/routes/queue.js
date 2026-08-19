@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { requireAuth } from '../middleware/auth.js';
 import { getReviewQueue, rejectLead } from '../services/reviewQueue.js';
+import { sendApprovedLead } from '../services/leadSend.js';
 import { safeMessage } from '../lib/httpError.js';
 import { logger } from '../lib/logger.js';
 
@@ -66,6 +67,34 @@ router.post('/leads/:id/reject', requireAuth, async (req, res) => {
     if (status >= 500) logger.error('lead_reject_failed', { userId: req.user.id, status });
 
     return res.status(status).json({ error: safeMessage(err, 'Could not record the rejection') });
+  }
+});
+
+/**
+ * POST /api/leads/:id/send — put ONE approved letter in somebody's inbox.
+ *
+ * Every gate is in the service, on purpose: this route validates shape and
+ * nothing else. A gate implemented here would be a gate that a second caller
+ * could skip, and this repo has shipped exactly that once already — a
+ * trailing-slash route variant that sent mail with no confirmation.
+ */
+router.post('/leads/:id/send', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+
+  try {
+    const result = await sendApprovedLead(req.user.id, req.params.id, {
+      confirmed: body.confirmed,
+      subject: body.subject,
+      body: body.body
+    });
+
+    return res.status(200).json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    // The message can carry Gmail's own error text, which may quote the letter.
+    if (status >= 500) logger.error('lead_send_failed', { userId: req.user.id, status });
+
+    return res.status(status).json({ error: safeMessage(err, 'Could not send the letter') });
   }
 });
 

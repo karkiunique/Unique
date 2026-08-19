@@ -26,7 +26,10 @@ export default [
   },
   js.configs.recommended,
   {
-    files: ['**/*.js'],
+    // .mjs too: the one-off scripts in scripts/ are ESM-by-extension and get the
+    // same Node globals as src/ — without this they lint as if `process` and
+    // `console` did not exist.
+    files: ['**/*.js', '**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
