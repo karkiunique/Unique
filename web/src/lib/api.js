@@ -1,6 +1,20 @@
 import { getAccessToken } from './supabase.js';
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
+/**
+ * Where the API lives.
+ *
+ * Defaults to the EMPTY STRING, meaning same-origin — which is how production
+ * runs: one Railway service serves both the API and this bundle, so `/api/...`
+ * resolves against whatever host the page was loaded from and nothing
+ * environment-specific is compiled in (Decisions, 2026-08-19).
+ *
+ * Local development sets VITE_API_URL=http://localhost:3000 in web/.env, because
+ * there the app is on 5173 and the API is not.
+ *
+ * NOT `/api`: buildUrl appends `/api` itself, so a base of `/api` would produce
+ * `/api/api/queue`.
+ */
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 function buildUrl(path) {
   const suffix = path.startsWith('/') ? path : `/${path}`;

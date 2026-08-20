@@ -443,6 +443,44 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 
 ## Decisions (dated — do not silently revisit)
 
+### 2026-08-19 — One Railway service serves the API and the built web app
+
+**Both halves ship from one service, same origin.** Railway builds `web` and Express serves
+`web/dist` alongside `/api`. This supersedes the split-host assumption in § Tech stack ("Deploy:
+Railway (server + Redis)") only in that the web app now rides along; the server still deploys to
+Railway exactly as before.
+
+**The reason is not cost, it is the two failure modes it deletes.**
+- **CORS stops applying.** A same-origin request carries no `Origin` header, which
+  `buildCorsOptions` already allows. `APP_URL` is still used — for the unsubscribe and review links
+  in outbound mail — but it is no longer the thing standing between the site and every API call.
+  Getting it wrong used to mean the page loaded perfectly and silently failed at every request.
+- **`VITE_API_URL` becomes `/api`**, a relative path, so nothing environment-specific is baked into
+  the bundle at build time. A `VITE_*` var is compiled in, not read at runtime, so an absolute URL
+  meant a rebuild for every environment and a `localhost` string shipped to production if anyone
+  forgot.
+
+**ORDER IS LOAD-BEARING in `app.js`.** `/api` routes mount FIRST, then static, then the SPA
+fallback, then the JSON 404. Reversed, the fallback swallows unmatched API paths and a typo'd
+endpoint answers `200 text/html` instead of `404 {"error"}` — which any client would then fail on in
+a far more confusing place. **The SPA fallback must never match a path beginning `/api`**, and there
+is a test that fails if it does.
+
+**The fallback is what makes deep links work.** There is no router (§ Rules), so `App.jsx` reads
+`window.location.pathname`. `/queue`, `/target`, `/signin` and the public `/u/:token` are all real
+URLs a person can arrive at cold, and every one of them must serve `index.html`.
+
+**`helmet()`'s CSP is configured explicitly rather than left on defaults.** It never mattered while
+this was JSON-only; serving HTML it decides whether the app renders at all. Configured, tested, and
+verified in a real browser — not assumed.
+
+**Static serving is skipped when `web/dist` is absent** rather than throwing, so the server still
+runs API-only in development and in tests.
+
+**The tradeoff, stated:** deploys are now coupled — a web change redeploys the API. At this scale
+that is nothing. Split them again when the landing page wants a CDN edge and the API wants one
+region, which is a problem worth having later, not designing for now.
+
 ### 2026-08-19 — The Send button: one letter, one decision, never a keystroke
 
 **The shape.** In the daily queue each letter is read, optionally edited, then **sent by hand**. One

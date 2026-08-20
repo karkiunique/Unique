@@ -1,0 +1,15 @@
+{
+  "name": "unique",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unique — one Railway service serves the API and the built web app (CLAUDE.md, Decisions 2026-08-19)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:all": "npm --prefix web ci && npm --prefix server ci",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix server start",
+    "check": "npm --prefix server run check && npm --prefix web run check"
+  }
+}
