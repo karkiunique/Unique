@@ -61,8 +61,24 @@ breaks the healthcheck.
 **Not needed yet:** `REDIS_URL` (no BullMQ queue), `APOLLO_API_KEY` / `TAVILY_API_KEY`
 (Stage B, blocked on the licence), `SUPABASE_ANON_KEY` (the server never reads it).
 
-**No `VITE_*` variables anywhere.** `web/.env.production` pins the API base to
-same-origin at build time and is committed for exactly that reason.
+**Two `VITE_*` variables ARE required**, and it is easy to talk yourself out of them:
+
+    VITE_SUPABASE_URL         same value as SUPABASE_URL
+    VITE_SUPABASE_ANON_KEY    the ANON key, never the service-role key
+
+Vite compiles `VITE_*` into the bundle at BUILD time. Railway builds from a clean
+clone and `web/.env` is gitignored, so without these two the build produces an app
+with no Supabase credentials — it renders "Supabase is not configured" and nobody
+can sign in. Set in Railway they are picked up, because Railway exposes service
+variables to the build step. Both facts verified by building each way and grepping
+the bundle.
+
+**`VITE_API_URL` is NOT needed.** `web/.env.production` pins it empty, so requests
+are same-origin. Setting it would only reintroduce the possibility of a wrong host.
+
+**Never `VITE_`-prefix a secret.** Anything with that prefix is compiled into
+JavaScript the browser downloads. The service-role key is server-side only, and a
+build was checked to confirm it does not appear in the bundle.
 
 ## After the first deploy
 
