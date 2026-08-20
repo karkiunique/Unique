@@ -17,10 +17,14 @@ export default function DeckControls({
   onSave,
   onRedraft,
   onClose,
+  onReject,
+  onSend,
   canApprove,
   canEdit,
   canSave,
   canRedraft,
+  canReject,
+  canSend,
   busy,
   atFirst,
   atLast
@@ -28,10 +32,20 @@ export default function DeckControls({
   return (
     <div>
       <div className="rowline review-actions">
-        <button type="button" className="btn red" onClick={onApprove} disabled={!canApprove}>
-          <Icon name="stamp" />
-          Approve &amp; next
-        </button>
+        {/* Only the daily queue passes onSend. It leads the row because it is the
+            action this screen exists for — and it is a CLICK, never a shortcut:
+            approval is reversible and sending is not (Decisions, 2026-08-19). */}
+        {typeof onSend === 'function' ? (
+          <button type="button" className="btn red" onClick={onSend} disabled={!canSend}>
+            <Icon name="send" />
+            Send this letter
+          </button>
+        ) : (
+          <button type="button" className="btn red" onClick={onApprove} disabled={!canApprove}>
+            <Icon name="stamp" />
+            Approve &amp; next
+          </button>
+        )}
 
         <button type="button" className="btn plain" onClick={() => onMove(-1)} disabled={atFirst}>
           <Icon name="arrow-left" />
@@ -58,17 +72,30 @@ export default function DeckControls({
           Redraft
         </button>
 
+        {/* Only the daily queue passes onReject: a campaign lead the user
+            uploaded themselves has no targeting to teach. */}
+        {typeof onReject === 'function' ? (
+          <button type="button" className="btn plain" onClick={onReject} disabled={!canReject}>
+            <Icon name="eye-off" />
+            Not a fit
+          </button>
+        ) : null}
+
         <button type="button" className="linkbtn" onClick={onClose}>
           Close
         </button>
       </div>
 
       <ul className="deck-legend" aria-label="Keyboard shortcuts">
+        {/* SEND HAS NO SHORTCUT, and this legend must never claim one. Approval is
+            reversible; a send is not. */}
+        {typeof onSend === 'function' ? null : (
+          <li>
+            <kbd>Enter</kbd> approve &amp; next
+          </li>
+        )}
         <li>
-          <kbd>Enter</kbd> approve &amp; next
-        </li>
-        <li>
-          <kbd>←</kbd> <kbd>→</kbd> move without approving
+          <kbd>←</kbd> <kbd>→</kbd> {typeof onSend === 'function' ? 'move between letters' : 'move without approving'}
         </li>
         <li>
           <kbd>E</kbd> edit

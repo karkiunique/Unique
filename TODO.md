@@ -15,10 +15,15 @@ Two gate-integrity requirements, both recorded as dated decisions in CLAUDE.md. 
 cleanup.** Phase 4 is where sending becomes autonomous, and these are the two places where the
 human-approval guarantee can be silently lost. Do not treat them as follow-ups to fit in later.
 
-**BLOCKER 1 — every send MUST route through `selectSendableLeads`. Top wiring requirement of Phase 4.**
+**BLOCKER 1 — PARTLY CLOSED (2026-08-19).** `selectSendableLeads` now HAS a production caller:
+`services/leadSend.js` (`POST /leads/:id/send`) reads its letter through it and never queries
+`leads`, asserted on the call and mutation-verified. **Still open for the BULK path** — Phase 4's
+`POST /campaigns/:id/send` and `sendWorker.js` do not exist yet and must route through it too when
+they do. What follows is the original entry, still binding for those two.
+
 It is the server-side enforcement of "only `approved` leads may ever be sendable", fully tested and
-mutation-verified (three mutations kill it, including the full gate breach) — but it has **no
-production caller**. The tests prove the function behaves; nothing yet proves the send path uses it.
+mutation-verified (three mutations kill it, including the full gate breach) — and until 2026-08-19 it
+had **no production caller**. The tests prove the function behaves; nothing yet proves the send path uses it.
 
 **Building the Phase 4 queue without routing through it = autonomous sending with the approval gate
 bypassed.** That is not hypothetical here: this project already shipped a trailing-slash route
@@ -30,7 +35,12 @@ outcome**, because a re-query can return an identical result set while bypassing
 Outcome-based assertions are provably blind to this class of bug; that is exactly how the two
 regenerate-path owner filters survived their first mutation round in Loop 4.
 
-**BLOCKER 2 — harden the compose 80-point fidelity floor server-side, when the send path is touched.**
+**BLOCKER 2 — CLOSED FOR LEADS (2026-08-19), STILL OPEN FOR COMPOSE.** `POST /leads/:id/send`
+enforces the floor server-side by reading `leads.fidelity_score`, with `edited_body` as the escape
+hatch, mutation-verified. It needs no HMAC because a lead HAS a row; the signed-score design below
+exists for compose, whose draft lives only in the browser. Compose is still UI-only.
+
+**Original entry, still binding for the compose flow:**
 `web/src/components/FidelityGate.jsx` blocks a sub-80 draft from reaching the confirm step. Nothing in
 `routes/send.js` or `services/send.js` does, so the floor is bypassable by a direct API call.
 
@@ -66,12 +76,23 @@ stated process, since the route list in that file **is** the contract. Record a 
   and the unique index on `(user_id, gmail_message_id)` is real, confirmed by an `on_conflict` probe
   that returned an FK violation (execute-time) rather than `42P10` (plan-time). `recordSend()` was
   also exercised end-to-end against the live DB: write, idempotent retry, and both register readers.
-  It works. **Migration 002's trigger was NOT verified** — `pg_catalog` is not reachable through
-  PostgREST. Run this in the SQL Editor if certainty is wanted:
-  ```sql
-  select tgname, tgenabled from pg_trigger
-  where tgrelid = 'auth.users'::regclass and not tgisinternal;
-  ```
+  It works.
+- **Migration 002's trigger IS VERIFIED** (2026-08-17), and so is 006's replacement of it. Reading
+  `pg_trigger` through PostgREST is still impossible — it answers `PGRST205` — so it was tested
+  FUNCTIONALLY instead, which is better evidence anyway: reading the catalog proves a trigger exists,
+  running one proves it works. A throwaway user was created through `auth.admin.createUser` with
+  `full_name` in the metadata, and:
+    - a `profiles` row appeared automatically  -> the 002 trigger fires;
+    - `email` carried through correctly;
+    - `full_name` came back as the metadata value -> the **006** version of `handle_new_user` is the
+      one installed, not the 002 version;
+    - deleting the auth user cascaded the `profiles` row away, leaving no orphan.
+  The probe user was removed. Re-run it the same way if the trigger is ever suspected again.
+- **Migration 006 was UNAPPLIED until 2026-08-17**, long after it merged to `main` in `b3b4734`.
+  `profiles.full_name` simply did not exist, so `PATCH /me` failed and the sign-off name was inert in
+  production while the code and the contract both said it worked. Found only because a script tried
+  to read the column. **A migration merged is not a migration applied** — check the live schema after
+  merging one, not just that the file is in the repo.
 
 **How work gets done here:** every feature goes through the builder → checker loop
 (`.claude/agents/`, `.claude/commands/build-loop.md`). Builder writes code and never runs anything;

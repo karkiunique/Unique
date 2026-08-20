@@ -6,6 +6,10 @@ node_modules/
 # env — NEVER commit real secrets, only .env.example
 .env
 .env.*
+# EXCEPTION, and not a secret: one line, VITE_API_URL=(empty), which forces
+# production builds to same-origin. Vite compiles VITE_* in at BUILD time, so this
+# has to be in the repo for Railway to build correctly.
+!web/.env.production
 !.env.example
 
 # build output

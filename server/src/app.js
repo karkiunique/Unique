@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'node:path';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -12,8 +13,11 @@ import leadRoutes from './routes/leads.js';
 import sendRoutes from './routes/send.js';
 import unsubscribeRoutes from './routes/unsubscribe.js';
 import waitlistRoutes from './routes/waitlist.js';
+import targetRoutes from './routes/target.js';
+import queueRoutes from './routes/queue.js';
 import devInspectRoutes from './routes/devInspect.js';
 import { devRoutesEnabled } from './lib/devOnly.js';
+import { webDistPath, isSpaRequest } from './lib/webApp.js';
 import { logger } from './lib/logger.js';
 
 const DEFAULT_APP_URL = 'http://localhost:5173';
@@ -49,7 +53,33 @@ export function createApp() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  app.use(helmet());
+  // CSP is set explicitly rather than left on helmet's defaults. It never mattered
+  // while this served only JSON; serving the app's HTML it decides whether the page
+  // renders at all, and a default that silently blocks a stylesheet is a bad thing
+  // to discover in production.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          // Vite emits external JS and CSS. No CDN: fonts are self-hosted and
+          // icons are inline SVG, both deliberate (see index.html, Icon.jsx).
+          scriptSrc: ["'self'"],
+          // 'unsafe-inline' is required for style ATTRIBUTES, which the landing
+          // page uses for the benchmark bar widths. Scripts get no such licence.
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          fontSrc: ["'self'"],
+          imgSrc: ["'self'", 'data:'],
+          // The browser talks to Supabase Auth directly from this origin.
+          connectSrc: ["'self'", 'https://*.supabase.co'],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"]
+        }
+      },
+      // The app is served over https by Railway but assets are same-origin.
+      crossOriginEmbedderPolicy: false
+    })
+  );
   app.use(cors(buildCorsOptions()));
   app.use(express.json({ limit: '1mb' }));
   app.use(buildRateLimiter());
@@ -63,11 +93,31 @@ export function createApp() {
   app.use('/api', sendRoutes);
   app.use('/api', unsubscribeRoutes);
   app.use('/api', waitlistRoutes);
+  app.use('/api', targetRoutes);
+  app.use('/api', queueRoutes);
 
   // Dev-only inspection routes. Checked here (not at module scope) so the gate is
   // re-evaluated per app instance; the router re-checks it on every request too.
   if (devRoutesEnabled()) {
     app.use('/api', devInspectRoutes);
+  }
+
+  // THE ORDER BELOW IS LOAD-BEARING. Every /api route is already mounted above.
+  // Static assets come next, then the SPA shell, then the JSON 404 — reversed, the
+  // shell would swallow unmatched API paths and a typo'd endpoint would answer
+  // 200 text/html instead of 404 {"error"}.
+  const dist = webDistPath();
+
+  if (dist) {
+    // index:false so the static layer never answers "/" itself; the SPA fallback
+    // below owns every HTML response, so there is exactly one place that decides.
+    app.use(express.static(dist, { index: false }));
+
+    app.use((req, res, next) => {
+      if (!isSpaRequest(req.method, req.path)) return next();
+
+      return res.sendFile(path.join(dist, 'index.html'));
+    });
   }
 
   app.use((req, res) => {

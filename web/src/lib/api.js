@@ -1,6 +1,20 @@
 import { getAccessToken } from './supabase.js';
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
+/**
+ * Where the API lives.
+ *
+ * Defaults to the EMPTY STRING, meaning same-origin — which is how production
+ * runs: one Railway service serves both the API and this bundle, so `/api/...`
+ * resolves against whatever host the page was loaded from and nothing
+ * environment-specific is compiled in (Decisions, 2026-08-19).
+ *
+ * Local development sets VITE_API_URL=http://localhost:3000 in web/.env, because
+ * there the app is on 5173 and the API is not.
+ *
+ * NOT `/api`: buildUrl appends `/api` itself, so a base of `/api` would produce
+ * `/api/api/queue`.
+ */
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 function buildUrl(path) {
   const suffix = path.startsWith('/') ? path : `/${path}`;
@@ -62,5 +76,8 @@ export async function apiFetch(path, options = {}) {
 export const api = {
   get: (path, options) => apiFetch(path, { ...options, method: 'GET' }),
   post: (path, body, options) => apiFetch(path, { ...options, method: 'POST', body }),
-  patch: (path, body, options) => apiFetch(path, { ...options, method: 'PATCH', body })
+  patch: (path, body, options) => apiFetch(path, { ...options, method: 'PATCH', body }),
+  // PUT, not PATCH: the standing target is replaced wholesale, so an omitted
+  // criterion means "no longer a constraint" rather than "leave it alone".
+  put: (path, body, options) => apiFetch(path, { ...options, method: 'PUT', body })
 };

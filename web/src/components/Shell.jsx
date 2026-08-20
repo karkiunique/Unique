@@ -8,9 +8,10 @@ import { navigateTo } from '../lib/navigate.js';
 
 const SECTIONS = [
   { path: '/', label: 'Voice profile', numeral: 'I' },
-  { path: '/compose', label: 'Compose', numeral: 'II' },
-  { path: '/threads', label: 'Sent & replies', numeral: 'III' },
-  { path: '/campaigns', label: 'Campaigns', numeral: 'IV' }
+  { path: '/queue', label: 'Daily queue', numeral: 'II' },
+  { path: '/compose', label: 'Compose', numeral: 'III' },
+  { path: '/threads', label: 'Sent & replies', numeral: 'IV' },
+  { path: '/campaigns', label: 'Campaigns', numeral: 'V' }
 ];
 
 function todayLine() {

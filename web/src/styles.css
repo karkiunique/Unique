@@ -2410,6 +2410,91 @@ a {
   }
 }
 
+/* ---- the daily queue and the standing target ---- */
+.daily {
+  max-width: 780px;
+}
+
+.daily h1 {
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 6px 0 0;
+}
+
+.daily .lead {
+  margin-top: 12px;
+}
+
+.target-form {
+  margin-top: 28px;
+  border-top: 1.5px solid var(--ink);
+  padding-top: 22px;
+}
+
+.target-form .rfield {
+  margin-bottom: 20px;
+}
+
+.target-daily {
+  max-width: 90px;
+}
+
+.field-hint {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+/* ---- not a fit: the rejection dialog ---- */
+.reject-dialog {
+  margin-top: 22px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper-lift);
+  padding: 24px 26px;
+}
+
+.reject-reasons {
+  border: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reject-reason {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.reject-reason-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.reject-reason-hint {
+  display: block;
+  font-size: 14px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+
+.reject-dialog .rfield {
+  margin-top: 18px;
+}
+
+.reject-dialog .rowline {
+  margin-top: 18px;
+  gap: 14px;
+}
+
 /* ==========================================================================
    Landing / waitlist page (Decisions, 2026-08-15)
 

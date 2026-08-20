@@ -6,6 +6,8 @@ import CampaignsPage from './pages/CampaignsPage.jsx';
 import ComposePage from './pages/ComposePage.jsx';
 import LandingPage from './pages/LandingPage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
+import QueuePage from './pages/QueuePage.jsx';
+import TargetPage from './pages/TargetPage.jsx';
 import ThreadsPage from './pages/ThreadsPage.jsx';
 import UnsubscribePage, { unsubscribeTokenFromPath } from './pages/UnsubscribePage.jsx';
 import { Shell } from './components/Shell.jsx';
@@ -21,12 +23,20 @@ const PAGES = {
   '/compose': ComposePage,
   '/threads': ThreadsPage,
   '/campaigns': CampaignsPage,
-  '/campaigns/new': CampaignBuilderPage
+  '/campaigns/new': CampaignBuilderPage,
+  '/queue': QueuePage,
+  '/target': TargetPage
 };
 
 // One opened campaign. Matched here rather than in the page so the pages stay
 // free of window.location, exactly as the rest of the app is.
 const OPEN_CAMPAIGN = /^\/campaigns\/([^/]+)$/;
+
+// Pages that are not their own nav section, and which tab stays lit for each.
+const SECTION_FOR = {
+  '/campaigns/new': '/campaigns',
+  '/target': '/queue'
+};
 
 // The public front door, and the one path that opts into the password box.
 // Decisions, 2026-08-15: a stranger meets the product, not a login form.
@@ -46,8 +56,9 @@ function resolveRoute(path) {
   if (PAGES[path]) {
     return {
       Page: PAGES[path],
-      // The builder is not its own section: Campaigns stays the current tab.
-      shellPath: path === '/campaigns/new' ? '/campaigns' : path,
+      // Neither the builder nor the target settings is its own section: each
+      // keeps the tab it was reached from current.
+      shellPath: SECTION_FOR[path] ?? path,
       campaignId: null
     };
   }
