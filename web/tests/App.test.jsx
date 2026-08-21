@@ -16,6 +16,7 @@ vi.mock('../src/lib/api.js', () => ({
 
 vi.mock('../src/lib/navigate.js', () => ({
   navigateTo: vi.fn(),
+  reloadPage: vi.fn(),
   getQueryParam: () => null
 }));
 

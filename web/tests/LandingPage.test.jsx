@@ -16,9 +16,10 @@ import userEvent from '@testing-library/user-event';
  *    label, so removing the label fails.
  */
 
-const { apiFetch, navigateTo } = vi.hoisted(() => ({
+const { apiFetch, navigateTo, reloadPage } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
-  navigateTo: vi.fn()
+  navigateTo: vi.fn(),
+  reloadPage: vi.fn()
 }));
 
 vi.mock('../src/lib/api.js', () => ({
@@ -28,6 +29,7 @@ vi.mock('../src/lib/api.js', () => ({
 
 vi.mock('../src/lib/navigate.js', () => ({
   navigateTo,
+  reloadPage,
   getQueryParam: () => null
 }));
 
@@ -36,6 +38,7 @@ const { default: LandingPage } = await import('../src/pages/LandingPage.jsx');
 beforeEach(() => {
   apiFetch.mockReset();
   navigateTo.mockReset();
+  reloadPage.mockReset();
   apiFetch.mockImplementation((path) =>
     path === '/waitlist/count' ? Promise.resolve({ count: 88 }) : Promise.resolve({})
   );
@@ -65,6 +68,18 @@ describe('LandingPage', () => {
     expect(screen.getByText(/Industry benchmarks/i)).toBeInTheDocument();
     // The handoff's unsourced number. It must not come back.
     expect(screen.queryByText(/41%/)).not.toBeInTheDocument();
+  });
+
+  it('reloads the page from the masthead wordmark, and does not navigate away', async () => {
+    render(<LandingPage />);
+
+    const wordmark = screen.getByRole('button', { name: /Reload the Unique home page/i });
+    await userEvent.click(wordmark);
+
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+    // A reload, not a route change: /signin must not be reachable by accident
+    // from the one control a visitor is most likely to click first.
+    expect(navigateTo).not.toHaveBeenCalled();
   });
 
   it('sends the visitor to /signin only when they ask for it', async () => {

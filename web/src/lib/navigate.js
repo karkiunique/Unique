@@ -10,6 +10,11 @@ export function navigateTo(url) {
   window.location.assign(url);
 }
 
+/** Reload the current page. Isolated here for the same reason as navigateTo. */
+export function reloadPage() {
+  window.location.reload();
+}
+
 /** Query param off the current URL, or null. Read directly, no router. */
 export function getQueryParam(name) {
   try {

@@ -2665,8 +2665,10 @@ a {
   letter-spacing: 0.06em;
 }
 
-/* ---- getting back out of sign-in ---- */
-.auth-home {
+/* ---- wordmarks that are buttons: sign-in's way home, and the landing
+       masthead's reload. Same reset, so it is written once. ---- */
+.auth-home,
+.mast-home {
   background: none;
   border: none;
   padding: 0;
@@ -2675,8 +2677,18 @@ a {
   text-align: left;
 }
 
-.auth-home:hover .dot {
+.auth-home:hover .dot,
+.mast-home:hover .dot {
   color: var(--red-deep);
+}
+
+/* Keyboard focus in the page's own red rather than the browser's blue, which
+   is the one colour this palette does not contain. :focus-visible, so a mouse
+   click does not leave a ring sitting on the masthead afterwards. */
+.auth-home:focus-visible,
+.mast-home:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 4px;
 }
 
 .auth-foot {
