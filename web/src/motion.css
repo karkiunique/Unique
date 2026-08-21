@@ -1,0 +1,245 @@
+/* Unique — motion.
+
+   The rest of this design is a broadsheet: warm paper, ruled hairlines, one
+   editorial red, no shadows and no rounded corners. So the motion is a PRESS
+   RUN, not a web app. Rules are drawn across the page like a ruling pen, display
+   type sets itself into focus, and the waitlist block inks in. Nothing bounces,
+   nothing slides in from off-stage, nothing floats: none of those are things
+   paper does.
+
+   THE SAFETY PROPERTY: nothing in this file hides anything until `motion-on` is
+   on an ancestor, and only lib/useReveal.js adds that — after it has confirmed it
+   holds an IntersectionObserver to take the hiding back off again. A browser
+   without the observer, a script that failed to load, a reduced-motion
+   preference and jsdom therefore all land on the same resting state: the entire
+   page visible. Content hidden behind a script that might not run is how a
+   landing page ends up blank for the one visitor who mattered.
+   ========================================================================== */
+
+:root {
+  /* Quick off the mark, then a hard deceleration and a dead stop. A platen
+     coming down, not a spring. Overshoot reads as rubber, and this is paper. */
+  --ease-press: cubic-bezier(0.16, 0.84, 0.24, 1);
+  --reveal-ms: 620ms;
+  --rule-ms: 900ms;
+}
+
+/* ---- the ruling line: scroll progress across the top of the viewport ----
+   Below .modal-overlay (40) and .deck (60), both of which cover the screen. */
+.rule-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--red);
+  transform: scaleX(0);
+  transform-origin: left center;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* ---- default: ink rises and settles ---- */
+.motion-on [data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 15px, 0);
+  transition:
+    opacity var(--reveal-ms) var(--ease-press) var(--d, 0ms),
+    transform var(--reveal-ms) var(--ease-press) var(--d, 0ms),
+    filter var(--reveal-ms) var(--ease-press) var(--d, 0ms);
+}
+
+.motion-on [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* ---- 'set': type coming into register and into focus ----
+   Display type only. A blur filter costs real GPU time, and across a column of
+   body copy it buys an effect nobody consciously sees. */
+.motion-on [data-reveal='set'] {
+  transform: translate3d(0, 10px, 0) scale(0.965);
+  filter: blur(4px);
+}
+
+/* ---- 'settle': opacity alone, for the working pages ----
+   The tool screens get a plain fade and no travel. Two reasons, and the second
+   is a real hazard rather than taste: a page someone opens forty times a day
+   should not perform, and a transform on an ancestor makes it the containing
+   block for `position: fixed` descendants — which would quietly re-anchor the
+   full-screen review deck if it opened mid-transition. Opacity makes a stacking
+   context but not a containing block, so it cannot. */
+.motion-on [data-reveal='settle'] {
+  transform: none;
+  transition: opacity var(--reveal-ms) var(--ease-press) var(--d, 0ms);
+}
+
+/* ---- 'rule-x' / 'rule-top' / 'rule-y': hairlines draw themselves ----
+   The element's real border keeps its place in the layout and merely goes
+   transparent; a pseudo-element standing exactly where it sits is what actually
+   sweeps across. Animating the border itself would reflow the page on every
+   frame, and removing it would shift the layout by a pixel as it arrived. */
+.motion-on [data-reveal='rule-x'],
+.motion-on [data-reveal='rule-top'],
+.motion-on [data-reveal='rule-y'] {
+  opacity: 1;
+  transform: none;
+  position: relative;
+}
+
+.motion-on [data-reveal='rule-x'] {
+  border-bottom-color: transparent;
+}
+
+.motion-on [data-reveal='rule-top'] {
+  border-top-color: transparent;
+}
+
+.motion-on [data-reveal='rule-y'] {
+  border-left-color: transparent;
+}
+
+.motion-on [data-reveal='rule-x']::after,
+.motion-on [data-reveal='rule-top']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--rule-w, 1px);
+  background: var(--rule-ink, var(--rule));
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--rule-ms) var(--ease-press) var(--d, 0ms);
+}
+
+/* An absolutely positioned child is placed against the PADDING box, so a full
+   rule-width outside it is exactly where the border sits. */
+.motion-on [data-reveal='rule-x']::after {
+  bottom: calc(-1 * var(--rule-w, 1px));
+}
+
+.motion-on [data-reveal='rule-top']::after {
+  top: calc(-1 * var(--rule-w, 1px));
+}
+
+.motion-on [data-reveal='rule-y']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--rule-w, 1.5px));
+  width: var(--rule-w, 1.5px);
+  background: var(--rule-ink, var(--ink));
+  transform: scaleY(0);
+  transform-origin: top center;
+  transition: transform var(--rule-ms) var(--ease-press) var(--d, 0ms);
+}
+
+.motion-on [data-reveal='rule-x'].is-in::after,
+.motion-on [data-reveal='rule-top'].is-in::after {
+  transform: scaleX(1);
+}
+
+.motion-on [data-reveal='rule-y'].is-in::before {
+  transform: scaleY(1);
+}
+
+/* Each rule stands in for a real border, so it has to match its weight and
+   colour exactly — otherwise the page changes appearance once it has settled. */
+.motion-on .hero[data-reveal='rule-x'],
+.motion-on .steps[data-reveal='rule-top'] {
+  --rule-w: 1.5px;
+  --rule-ink: var(--ink);
+}
+
+.motion-on .step[data-reveal='rule-x'] {
+  --rule-w: 1px;
+  --rule-ink: var(--rule);
+}
+
+.motion-on .aside[data-reveal='rule-y'] {
+  --rule-w: 1.5px;
+  --rule-ink: var(--ink);
+}
+
+/* ---- 'fill': the benchmark bars draw to their value ----
+   Scaled, never widthed, so the number in the markup stays the single source of
+   the figure and the browser animates on the compositor. */
+.motion-on [data-reveal='fill'] {
+  opacity: 1;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1.05s var(--ease-press) var(--d, 0ms);
+}
+
+.motion-on [data-reveal='fill'].is-in {
+  transform: scaleX(1);
+}
+
+/* ---- 'wipe': the inverted waitlist block inks in ----
+   The one crescendo on the page, and it is the last thing on it. The panel is
+   laid down top to bottom with its contents already in place, the way a block of
+   solid ink actually arrives on a sheet.
+
+   IT IS DONE WITH A RETREATING COVER, NOT BY CLIPPING THE PANEL, and that is a
+   correctness fix rather than a stylistic one. `clip-path: inset(0 0 100% 0)` on
+   the panel empties its own intersection rectangle, so IntersectionObserver
+   reports it as never intersecting and the reveal that would un-clip it never
+   fires — hidden because it is unrevealed, unrevealed because it is hidden. The
+   observed element is left untouched here and a paper-coloured pseudo-element
+   over it collapses to the bottom edge instead. */
+.motion-on [data-reveal='wipe'] {
+  opacity: 1;
+  transform: none;
+  position: relative;
+}
+
+.motion-on [data-reveal='wipe']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--paper);
+  transform-origin: bottom center;
+  transition: transform 880ms var(--ease-press) var(--d, 0ms);
+  /* The form underneath stays clickable even mid-wipe. */
+  pointer-events: none;
+}
+
+.motion-on [data-reveal='wipe'].is-in::after {
+  transform: scaleY(0);
+}
+
+/* ---- reduced motion ----
+   Belt and braces. useReveal already declines to add `motion-on` under a reduce
+   preference, but it decides that once, at mount. This covers the visitor who
+   turns the setting on mid-session, who should not have to reload to be heard. */
+@media (prefers-reduced-motion: reduce) {
+  .motion-on [data-reveal],
+  .motion-on [data-reveal].is-in {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+
+  .motion-on [data-reveal='rule-x'] {
+    border-bottom-color: var(--rule-ink, var(--rule));
+  }
+
+  .motion-on [data-reveal='rule-top'] {
+    border-top-color: var(--rule-ink, var(--rule));
+  }
+
+  .motion-on [data-reveal='rule-y'] {
+    border-left-color: var(--rule-ink, var(--ink));
+  }
+
+  .motion-on [data-reveal='rule-x']::after,
+  .motion-on [data-reveal='rule-top']::after,
+  .motion-on [data-reveal='rule-y']::before,
+  .motion-on [data-reveal='wipe']::after {
+    display: none;
+  }
+}

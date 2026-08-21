@@ -1,5 +1,6 @@
 import Icon from './Icon.jsx';
 import UMark from './UMark.jsx';
+import { delay } from '../lib/useReveal.js';
 
 /**
  * The five "how it works" rows on the landing page.
@@ -20,14 +21,14 @@ import UMark from './UMark.jsx';
 // rather than as a value, which overstates a number we are already reporting
 // conservatively.
 const BENCHMARK = {
-  generic: { label: 'Generic blast', rate: 'reply 3%', fill: '22%' },
-  personalized: { label: 'Written for one person', rate: 'reply 11%', fill: '82%' },
+  generic: { label: 'Generic blast', rate: 'reply 3%', fill: '22%', fillDelay: 380 },
+  personalized: { label: 'Written for one person', rate: 'reply 11%', fill: '82%', fillDelay: 540 },
   source: 'Industry benchmarks · 2025–26'
 };
 
 function ConsentAside() {
   return (
-    <div className="layerrow">
+    <div className="layerrow" data-reveal style={delay(280)}>
       <span className="layer">
         <Icon name="lock" className="red" /> Read-only scope
       </span>
@@ -40,7 +41,7 @@ function ConsentAside() {
 
 function TwoLayersAside() {
   return (
-    <div className="layerrow">
+    <div className="layerrow" data-reveal style={delay(280)}>
       <span className="layer">
         <span className="n">1</span> Read tone, rhythm, phrasing
       </span>
@@ -55,24 +56,32 @@ function TwoLayersAside() {
 function PipelineAside() {
   return (
     <div className="pipeline">
-      <span className="node red">Goal</span>
-      <span className="ar" aria-hidden="true">
+      <span className="node red" data-reveal style={delay(280)}>
+        Goal
+      </span>
+      <span className="ar" aria-hidden="true" data-reveal style={delay(360)}>
         →
       </span>
-      <span className="node">Find people</span>
-      <span className="ar" aria-hidden="true">
+      <span className="node" data-reveal style={delay(420)}>
+        Find people
+      </span>
+      <span className="ar" aria-hidden="true" data-reveal style={delay(500)}>
         →
       </span>
-      <span className="node">Background check</span>
-      <span className="ar" aria-hidden="true">
+      <span className="node" data-reveal style={delay(560)}>
+        Background check
+      </span>
+      <span className="ar" aria-hidden="true" data-reveal style={delay(640)}>
         →
       </span>
-      <span className="node red">Warm draft</span>
+      <span className="node red" data-reveal style={delay(700)}>
+        Warm draft
+      </span>
     </div>
   );
 }
 
-function BenchmarkBar({ label, rate, fill }) {
+function BenchmarkBar({ label, rate, fill, fillDelay }) {
   return (
     <>
       <div className="row">
@@ -80,7 +89,11 @@ function BenchmarkBar({ label, rate, fill }) {
         <span>{rate}</span>
       </div>
       <div className="track">
-        <div className="fill" style={{ width: fill }} />
+        <div
+          className="fill"
+          data-reveal="fill"
+          style={{ width: fill, ...delay(fillDelay) }}
+        />
       </div>
     </>
   );
@@ -88,7 +101,7 @@ function BenchmarkBar({ label, rate, fill }) {
 
 function BenchmarkAside() {
   return (
-    <div className="bar">
+    <div className="bar" data-reveal style={delay(280)}>
       <BenchmarkBar {...BENCHMARK.generic} />
       <BenchmarkBar {...BENCHMARK.personalized} />
       {/* The attribution is part of the claim, not a footnote to it. */}
@@ -99,7 +112,7 @@ function BenchmarkAside() {
 
 function RegisterAside() {
   return (
-    <div className="layerrow">
+    <div className="layerrow" data-reveal style={delay(280)}>
       <span className="layer">
         <Icon name="corner-up-left" className="green" /> Reply detection
       </span>
@@ -175,19 +188,21 @@ const STEPS = [
 
 export default function LandingSteps() {
   return (
-    <section className="steps">
+    <section className="steps" data-reveal="rule-top">
       {STEPS.map(({ number, label, heading, body, asideKey, Aside }) => (
-        <article className="step" key={number}>
-          <div className="no">
+        <article className="step" key={number} data-reveal="rule-x">
+          <div className="no" data-reveal="set">
             {number}
             <span className="lab">{label}</span>
           </div>
-          <div>
+          <div data-reveal style={delay(100)}>
             <h3>{heading}</h3>
             <p>{body}</p>
           </div>
-          <div className="aside">
-            <div className="k">{asideKey}</div>
+          <div className="aside" data-reveal="rule-y" style={delay(160)}>
+            <div className="k" data-reveal style={delay(220)}>
+              {asideKey}
+            </div>
             <Aside />
           </div>
         </article>

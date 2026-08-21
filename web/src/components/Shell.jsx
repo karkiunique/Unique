@@ -1,4 +1,5 @@
 import { navigateTo } from '../lib/navigate.js';
+import { useReveal } from '../lib/useReveal.js';
 
 /**
  * The broadsheet frame: masthead + section tabs, with the page rendered on the
@@ -24,8 +25,11 @@ function todayLine() {
 }
 
 export function Shell({ email, path, children }) {
+  // The frame is furniture and stays put; only the page laid on it settles in.
+  const revealRef = useReveal();
+
   return (
-    <div className="paper-app">
+    <div className="paper-app" ref={revealRef}>
       <header className="masthead">
         <div className="top">
           <div>
@@ -58,7 +62,9 @@ export function Shell({ email, path, children }) {
           })}
         </nav>
       </header>
-      <div className="canvas">{children}</div>
+      <div className="canvas" data-reveal="settle">
+        {children}
+      </div>
     </div>
   );
 }

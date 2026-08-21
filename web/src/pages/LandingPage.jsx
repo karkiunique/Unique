@@ -4,8 +4,10 @@ import Icon from '../components/Icon.jsx';
 import UMark from '../components/UMark.jsx';
 import LandingSteps from '../components/LandingSteps.jsx';
 import WaitlistJoin from '../components/WaitlistJoin.jsx';
+import ScrollProgress from '../components/ScrollProgress.jsx';
 import { navigateTo } from '../lib/navigate.js';
 import { fetchWaitlistCount } from '../lib/waitlist.js';
+import { useReveal, delay } from '../lib/useReveal.js';
 
 /**
  * The public front page (Decisions, 2026-08-15).
@@ -75,8 +77,13 @@ export default function LandingPage() {
     };
   }, []);
 
+  // The hero is above the fold, so its cascade plays on load; everything below
+  // waits for the reader to arrive at it.
+  const revealRef = useReveal();
+
   return (
-    <main className="lp">
+    <main className="lp" ref={revealRef}>
+      <ScrollProgress />
       <header className="lp-mast">
         <div className="wordmark">
           Unique<span className="dot">.</span>
@@ -92,23 +99,25 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <div className="dateline">
+      <div className="dateline" data-reveal>
         <span>No. 001 · The voice issue</span>
         <span>Outbound, in your own hand</span>
         <span>Private beta · 2026</span>
       </div>
 
-      <section className="hero">
-        <div className="kicker red">The outreach dispatch</div>
-        <h1>
+      <section className="hero" data-reveal="rule-x">
+        <div className="kicker red" data-reveal style={delay(60)}>
+          The outreach dispatch
+        </div>
+        <h1 data-reveal="set" style={delay(140)}>
           We make outreach <em>easy</em>.
         </h1>
-        <p className="sub">
+        <p className="sub" data-reveal style={delay(280)}>
           Unique learns how <UMark /> actually write, finds the right people, and warms up every
           cold email, so outreach sounds like <UMark /> not AI slop.
         </p>
 
-        <div className="cta">
+        <div className="cta" data-reveal style={delay(380)}>
           <a className="btn-lite" href="#join" onClick={(e) => scrollToSection(e, 'join')}>
             Join the waitlist
             <Icon name="feather" />
@@ -118,7 +127,7 @@ export default function LandingPage() {
           </a>
         </div>
 
-        <div className="counter">
+        <div className="counter" data-reveal style={delay(460)}>
           <span className="dotpulse" aria-hidden="true" />
           {/* The box keeps its size either way, so nothing shifts when the number
               lands — a layout jump would be its own kind of tell. */}
@@ -126,7 +135,7 @@ export default function LandingPage() {
           the waitlist
         </div>
 
-        <div className="proof">
+        <div className="proof" data-reveal style={delay(530)}>
           {PROOF.map(([icon, text]) => (
             <span className="p" key={text}>
               <Icon name={icon} className="red" /> {text}
@@ -136,15 +145,17 @@ export default function LandingPage() {
       </section>
 
       <div className="secbar" id="how">
-        <h2>
+        <h2 data-reveal>
           How it <em>works</em>
         </h2>
-        <span className="kicker">Five moves · desk to reply</span>
+        <span className="kicker" data-reveal style={delay(90)}>
+          Five moves · desk to reply
+        </span>
       </div>
 
       <LandingSteps />
 
-      <section className="join" id="join">
+      <section className="join" id="join" data-reveal="wipe">
         <div className="kicker">Private beta · limited seats</div>
         <h2>
           Make your outreach <em>easy</em>.
@@ -156,7 +167,7 @@ export default function LandingPage() {
         <WaitlistJoin count={count} onJoined={applyCount} />
       </section>
 
-      <footer className="lp-foot">
+      <footer className="lp-foot" data-reveal>
         <span>Unique · outbound in your own hand</span>
         <span>© 2026 · Private beta</span>
       </footer>
