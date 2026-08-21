@@ -7,10 +7,19 @@ import { apiFetch } from './api.js';
  * asking for one would defeat the point of the page.
  */
 
-// Mirrors WAITLIST_BASE_COUNT on the server. Duplicated rather than fetched
-// because it is the number the page shows when the server cannot be reached at
-// all — a fallback that needs the server is not a fallback.
-export const WAITLIST_BASE_COUNT = 88;
+/**
+ * What the counter shows when the server cannot be reached AT ALL.
+ *
+ * A fallback, NOT a floor. It used to be both, back when the server added the same
+ * 88 as an offset and so could never answer with less — then migration 010 moved
+ * the baseline into the table, the server started returning the raw row count, and
+ * a `count >= 88` guard here silently threw away every real answer below it. The
+ * page showed 88 while the API was plainly returning 6.
+ *
+ * Anything finite and non-negative from the server is the truth. This value is only
+ * for the case where there is no answer.
+ */
+export const WAITLIST_FALLBACK_COUNT = 88;
 
 /**
  * The live count, or the base if anything goes wrong.
@@ -25,9 +34,11 @@ export async function fetchWaitlistCount() {
     const payload = await apiFetch('/waitlist/count', { auth: false });
     const count = Number(payload?.count);
 
-    return Number.isFinite(count) && count >= WAITLIST_BASE_COUNT ? count : WAITLIST_BASE_COUNT;
+    // Trust any real number. A floor here would override the server, which is the
+    // only thing that actually knows.
+    return Number.isFinite(count) && count >= 0 ? count : WAITLIST_FALLBACK_COUNT;
   } catch {
-    return WAITLIST_BASE_COUNT;
+    return WAITLIST_FALLBACK_COUNT;
   }
 }
 
@@ -49,7 +60,7 @@ export async function joinWaitlist(email) {
   const count = Number(payload?.count);
 
   return {
-    seat: Number.isFinite(seat) ? seat : WAITLIST_BASE_COUNT + 1,
-    count: Number.isFinite(count) ? count : WAITLIST_BASE_COUNT + 1
+    seat: Number.isFinite(seat) ? seat : WAITLIST_FALLBACK_COUNT + 1,
+    count: Number.isFinite(count) ? count : WAITLIST_FALLBACK_COUNT + 1
   };
 }

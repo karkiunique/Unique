@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import Icon from '../components/Icon.jsx';
 import LandingSteps from '../components/LandingSteps.jsx';
 import WaitlistJoin from '../components/WaitlistJoin.jsx';
 import { navigateTo } from '../lib/navigate.js';
-import { fetchWaitlistCount, WAITLIST_BASE_COUNT } from '../lib/waitlist.js';
+import { fetchWaitlistCount, WAITLIST_FALLBACK_COUNT } from '../lib/waitlist.js';
 
 /**
  * The public front page (Decisions, 2026-08-15).
@@ -29,32 +29,42 @@ function scrollToSection(event, id) {
 }
 
 export default function LandingPage() {
-  // Starts at the base rather than at zero or a spinner: the counter is furniture,
-  // and a flash of "0 already on the waitlist" reads worse than a number that
-  // refines itself a moment later.
-  const [count, setCount] = useState(WAITLIST_BASE_COUNT);
+  // Starts at the fallback rather than at zero or a spinner: the counter is
+  // furniture, and a flash of "0 already on the waitlist" reads worse than a number
+  // that refines itself a moment later. The server's answer replaces it, whatever
+  // that answer is.
+  const [count, setCount] = useState(WAITLIST_FALLBACK_COUNT);
 
   /**
-   * The counter only ever goes up.
+   * Has the server answered yet? The FIRST real answer replaces the placeholder
+   * unconditionally; only updates after it are monotonic.
    *
-   * Two things can otherwise walk it backwards. The mount fetch can resolve AFTER
-   * a join and overwrite the new count with the value it read before it — a
-   * one-off ordering race that the `active` flag does not cover, because that flag
-   * only guards unmount. And any future caller handing back a stale or junk number
-   * would drag the display down with it.
-   *
-   * A waitlist counter that ticks down in front of a visitor reads as broken, so
-   * the monotonicity is enforced here rather than assumed of every caller.
+   * Both halves are load-bearing and they pull against each other. Without the
+   * monotonic rule a late mount-fetch can overwrite a completed join and count the
+   * page down. Without the first-answer exception the placeholder becomes a FLOOR:
+   * the counter starts at 88, `Math.max` refuses anything smaller, and a genuine
+   * count of 6 is silently discarded — which is exactly what happened when the
+   * baseline moved into the table and the server began returning raw row counts.
    */
-  function raiseCount(next) {
-    setCount((current) => (Number.isFinite(next) ? Math.max(current, next) : current));
+  const answered = useRef(false);
+
+  function applyCount(next) {
+    if (!Number.isFinite(next)) return;
+
+    if (!answered.current) {
+      answered.current = true;
+      setCount(next);
+      return;
+    }
+
+    setCount((current) => Math.max(current, next));
   }
 
   useEffect(() => {
     let active = true;
 
     fetchWaitlistCount().then((live) => {
-      if (active) raiseCount(live);
+      if (active) applyCount(live);
     });
 
     return () => {
@@ -137,7 +147,7 @@ export default function LandingPage() {
           Join the waitlist and we’ll open a seat on your desk. Connect Gmail, build your voice, and
           send your first warm letter.
         </p>
-        <WaitlistJoin count={count} onJoined={raiseCount} />
+        <WaitlistJoin count={count} onJoined={applyCount} />
       </section>
 
       <footer className="lp-foot">

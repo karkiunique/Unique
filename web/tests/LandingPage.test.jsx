@@ -229,3 +229,38 @@ describe('LandingPage', () => {
     expect(apiFetch).not.toHaveBeenCalledWith('/waitlist', expect.anything());
   });
 });
+
+/**
+ * THE COUNTER MUST NOT SECOND-GUESS THE SERVER.
+ *
+ * There used to be a `count >= 88` floor here, left over from when the server added
+ * the same 88 as an offset. Migration 010 moved the baseline into the table, the
+ * server began returning the raw row count, and the floor silently discarded every
+ * real answer below it — the page showed 88 while the API plainly returned 6.
+ */
+describe('the counter trusts the server', () => {
+  it('shows a real count below the old floor instead of overriding it', async () => {
+    apiFetch.mockResolvedValue({ count: 6 });
+
+    render(<LandingPage />);
+
+    expect(await screen.findAllByText('6')).toHaveLength(2);
+    expect(screen.queryByText('88')).not.toBeInTheDocument();
+  });
+
+  it('shows zero rather than inventing a number', async () => {
+    apiFetch.mockResolvedValue({ count: 0 });
+
+    render(<LandingPage />);
+
+    await waitFor(() => expect(screen.getAllByText('0')).toHaveLength(2));
+  });
+
+  it('falls back only when there is no answer at all', async () => {
+    apiFetch.mockRejectedValue(new Error('Failed to fetch'));
+
+    render(<LandingPage />);
+
+    await waitFor(() => expect(screen.getAllByText('88')).toHaveLength(2));
+  });
+});
