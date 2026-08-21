@@ -97,13 +97,13 @@ export default function AuthPage() {
         </div>
 
         <div className="auth-hero">
-          <div className="kicker red">No. 001 — The voice issue</div>
+          <div className="kicker red">No. 001 · The voice issue</div>
           <h1>
             Cold emails that sound like <em>you</em> wrote them.
           </h1>
           <p className="lead auth-lead">
             Because you did. Unique learns your voice from your sent mail, then drafts outreach in
-            your hand — sent from your own inbox, never without your say-so.
+            your hand, sent from your own inbox, never without your say-so.
           </p>
           <div className="auth-steps">
             {STEPS.map(([numeral, text]) => (

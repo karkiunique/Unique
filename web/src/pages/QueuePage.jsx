@@ -125,7 +125,7 @@ export default function QueuePage() {
         <div className="kicker red">The daily queue</div>
         <h1>Nothing waiting.</h1>
         <p className="lead">
-          No letters are ready for review. Unique only queues a lead when it clears every check —
+          No letters are ready for review. Unique only queues a lead when it clears every check:
           a deliverable address, a real match to your target, and something specific to say. A quiet
           day means nothing was good enough, which is the point.
         </p>
@@ -149,7 +149,7 @@ export default function QueuePage() {
       </div>
 
       <p className="lead">
-        Drafted overnight, in your voice. Nothing has been sent — read each one, edit anything, and
+        Drafted overnight, in your voice. Nothing has been sent. Read each one, edit anything, and
         send the ones you want.
       </p>
 

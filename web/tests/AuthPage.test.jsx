@@ -48,7 +48,7 @@ describe('AuthPage', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Cold emails that sound like you wrote them.'
     );
-    expect(screen.getByText('No. 001 — The voice issue')).toBeInTheDocument();
+    expect(screen.getByText('No. 001 · The voice issue')).toBeInTheDocument();
     expect(screen.getByText('Read-only · Never stored · Human-confirmed')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enter' })).toBeInTheDocument();

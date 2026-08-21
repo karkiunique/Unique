@@ -159,7 +159,7 @@ export default function TargetPage() {
             className="rinput"
             rows={4}
             value={form.fitNotes}
-            placeholder="In your own words — what you sell, who it helps, what a good conversation looks like."
+            placeholder="In your own words: what you sell, who it helps, what a good conversation looks like."
             onChange={(event) => update('fitNotes', event.target.value)}
           />
           <p className="muted field-hint">
