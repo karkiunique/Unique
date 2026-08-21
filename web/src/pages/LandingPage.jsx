@@ -5,7 +5,7 @@ import UMark from '../components/UMark.jsx';
 import LandingSteps from '../components/LandingSteps.jsx';
 import WaitlistJoin from '../components/WaitlistJoin.jsx';
 import ScrollProgress from '../components/ScrollProgress.jsx';
-import { navigateTo } from '../lib/navigate.js';
+import { navigateTo, reloadPage } from '../lib/navigate.js';
 import { fetchWaitlistCount } from '../lib/waitlist.js';
 import { useReveal, delay } from '../lib/useReveal.js';
 
@@ -85,9 +85,18 @@ export default function LandingPage() {
     <main className="lp" ref={revealRef}>
       <ScrollProgress />
       <header className="lp-mast">
-        <div className="wordmark">
-          Unique<span className="dot">.</span>
-        </div>
+        {/* A button rather than a styled div, so it is reachable by keyboard and
+            announced as the control it is. */}
+        <button
+          type="button"
+          className="mast-home"
+          onClick={reloadPage}
+          aria-label="Reload the Unique home page"
+        >
+          <span className="wordmark">
+            Unique<span className="dot">.</span>
+          </span>
+        </button>
         <div className="rt">
           <button type="button" className="linkbtn" onClick={() => navigateTo('/signin')}>
             Sign in

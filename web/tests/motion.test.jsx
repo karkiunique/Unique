@@ -16,9 +16,10 @@ import { render, screen } from '@testing-library/react';
  * hiding into a plain stylesheet rule.
  */
 
-const { apiFetch, navigateTo } = vi.hoisted(() => ({
+const { apiFetch, navigateTo, reloadPage } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
-  navigateTo: vi.fn()
+  navigateTo: vi.fn(),
+  reloadPage: vi.fn()
 }));
 
 vi.mock('../src/lib/api.js', () => ({
@@ -28,6 +29,7 @@ vi.mock('../src/lib/api.js', () => ({
 
 vi.mock('../src/lib/navigate.js', () => ({
   navigateTo,
+  reloadPage,
   getQueryParam: () => null
 }));
 
