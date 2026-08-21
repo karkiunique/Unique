@@ -1,0 +1,15 @@
+# The landing page is public. Everything behind it is not — those routes are
+# served from the same index.html, so the server also sends X-Robots-Tag: noindex
+# for them (src/app.js). This file is the polite version of the same statement.
+User-agent: *
+Allow: /$
+Disallow: /signin
+Disallow: /queue
+Disallow: /target
+Disallow: /compose
+Disallow: /threads
+Disallow: /campaigns
+Disallow: /u/
+Disallow: /api/
+
+Sitemap: https://try-unique.com/sitemap.xml

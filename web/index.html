@@ -3,8 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="robots" content="noindex" />
-    <title>Unique</title>
+
+    <!--
+      No `noindex` here. The landing page is public and meant to be found.
+
+      Every app route (/queue, /signin, /target, /u/:token) is served from THIS
+      same file, so a blanket rule here would apply to all of them. The server
+      sends `X-Robots-Tag: noindex` for everything except `/` instead — see
+      src/app.js. A header can vary per request; a meta tag in a shared shell
+      cannot.
+    -->
+    <title>Unique — cold email that sounds like you wrote it</title>
+    <meta
+      name="description"
+      content="Unique learns how you actually write, finds the right people, and drafts every cold email in your own voice. You read and send each one yourself."
+    />
+
+    <!-- Link previews. A waitlist page gets shared in DMs and group chats far more
+         than it gets found in search, so these matter more than the title tag. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Unique" />
+    <meta property="og:title" content="Unique — cold email that sounds like you wrote it" />
+    <meta
+      property="og:description"
+      content="Unique learns how you actually write, finds the right people, and drafts every cold email in your own voice. You read and send each one yourself."
+    />
+    <meta property="og:url" content="https://try-unique.com/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Unique — cold email that sounds like you wrote it" />
+    <meta
+      name="twitter:description"
+      content="Outreach in your own hand. Private beta."
+    />
+
+    <link rel="canonical" href="https://try-unique.com/" />
+
     <!-- Self-hosted Newsreader + Space Mono. No external font request is made. -->
     <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>

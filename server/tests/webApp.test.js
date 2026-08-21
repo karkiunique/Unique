@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { useSharedTestServer } from './helpers/testServer.js';
-import { isSpaRequest } from '../src/lib/webApp.js';
+import { isSpaRequest, shouldNoIndex } from '../src/lib/webApp.js';
 
 /**
  * Serving the built web app from the same origin as the API
@@ -138,5 +138,35 @@ describe('the CSP that decides whether the page renders', () => {
     const scriptSrc = csp.split(';').find((part) => part.trim().startsWith('script-src'));
     expect(scriptSrc).not.toContain('unsafe-inline');
     expect(scriptSrc).not.toContain('unsafe-eval');
+  });
+});
+
+/**
+ * INDEX THE FRONT PAGE, NOTHING ELSE.
+ *
+ * Every app route is served from the same index.html, so a `noindex` meta tag in
+ * that file would hide the landing page too — which is exactly what it did until
+ * now. The instruction has to come from a header, which can vary per request.
+ */
+describe('search-engine visibility', () => {
+  it('marks every route except the landing page noindex', () => {
+    expect(shouldNoIndex('/')).toBe(false);
+    for (const p of ['/signin', '/queue', '/target', '/compose', '/threads', '/u/tok']) {
+      expect(shouldNoIndex(p)).toBe(true);
+    }
+  });
+
+  it('sends no X-Robots-Tag on the landing page', async () => {
+    const response = await httpRequest('get', '/');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-robots-tag']).toBeUndefined();
+  });
+
+  it.each(['/signin', '/queue', '/target', '/u/a-token'])('sends noindex on %s', async (path) => {
+    const response = await httpRequest('get', path);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-robots-tag']).toBe('noindex, nofollow');
   });
 });

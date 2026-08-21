@@ -17,7 +17,7 @@ import targetRoutes from './routes/target.js';
 import queueRoutes from './routes/queue.js';
 import devInspectRoutes from './routes/devInspect.js';
 import { devRoutesEnabled } from './lib/devOnly.js';
-import { webDistPath, isSpaRequest } from './lib/webApp.js';
+import { webDistPath, isSpaRequest, shouldNoIndex } from './lib/webApp.js';
 import { logger } from './lib/logger.js';
 
 const DEFAULT_APP_URL = 'http://localhost:5173';
@@ -115,6 +115,10 @@ export function createApp() {
 
     app.use((req, res, next) => {
       if (!isSpaRequest(req.method, req.path)) return next();
+
+      // Index the front page, nothing else. The app routes share this shell, so
+      // the instruction has to come from a header rather than a meta tag.
+      if (shouldNoIndex(req.path)) res.set('X-Robots-Tag', 'noindex, nofollow');
 
       return res.sendFile(path.join(dist, 'index.html'));
     });

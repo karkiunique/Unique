@@ -35,3 +35,15 @@ export function isSpaRequest(method, path) {
 
   return !path.startsWith('/api');
 }
+
+/**
+ * Whether search engines should be told to skip this page.
+ *
+ * Only `/` is public. Every other route — /signin, /queue, /target, /u/:token —
+ * is served from the SAME index.html, so a meta tag in that file would apply to
+ * all of them at once. A header can vary per request, which is the only way an
+ * SPA with one shell can say "index the front page, not the app".
+ */
+export function shouldNoIndex(path) {
+  return path !== '/';
+}
