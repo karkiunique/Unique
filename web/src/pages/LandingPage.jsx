@@ -18,9 +18,9 @@ import { fetchWaitlistCount } from '../lib/waitlist.js';
 
 const PROOF = [
   ['lock', <>Gmail read-only</>],
-  // Plain 'You' here on purpose: this row is 11px uppercase mono, and a serif mark
-  // inside it looks like a glitch rather than a brand token.
-  ['pen-line', <>You approve every send</>],
+  ['pen-line', <>
+    <UMark /> approve every send
+  </>],
   ['eye-off', <>Never stored</>]
 ];
 

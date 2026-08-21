@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const { signUp, signInWithPassword } = vi.hoisted(() => ({
+const { signUp, signInWithPassword, navigateTo } = vi.hoisted(() => ({
+  navigateTo: vi.fn(),
   signUp: vi.fn(),
   signInWithPassword: vi.fn()
 }));
 
 // Auth is the only thing the browser talks to Supabase for; nothing real in tests.
+vi.mock('../src/lib/navigate.js', () => ({ navigateTo, getQueryParam: () => null }));
+
 vi.mock('../src/lib/supabase.js', () => ({
   isSupabaseConfigured: () => true,
   getSupabase: () => ({ auth: { signUp, signInWithPassword } }),
@@ -196,5 +199,41 @@ describe('the U. mark', () => {
     const { container } = render(<AuthPage />);
 
     expect(container.textContent).not.toMatch(/\bUr\b/);
+  });
+});
+
+/**
+ * GETTING BACK OUT.
+ *
+ * Sign-in was a dead end: a visitor who clicked "Sign in" from the landing page
+ * had no way back except the browser's back button. Two exits now, deliberately —
+ * a logo that goes home is a CONVENTION, not an affordance, and someone who does
+ * not know it would still be stranded.
+ */
+describe('leaving sign-in', () => {
+  it('offers an explicit way back to the front page', async () => {
+    render(<AuthPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Back to the front page/ }));
+
+    expect(navigateTo).toHaveBeenCalledWith('/');
+  });
+
+  it('sends the wordmark home too, with an accessible name', async () => {
+    render(<AuthPage />);
+
+    const home = screen.getByRole('button', { name: /Back to the Unique home page/ });
+    await userEvent.click(home);
+
+    expect(navigateTo).toHaveBeenCalledWith('/');
+  });
+
+  it('does not sign anything in on the way out', async () => {
+    render(<AuthPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Back to the front page/ }));
+
+    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(signUp).not.toHaveBeenCalled();
   });
 });

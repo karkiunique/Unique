@@ -2665,6 +2665,27 @@ a {
   letter-spacing: 0.06em;
 }
 
+/* ---- getting back out of sign-in ---- */
+.auth-home {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+  text-align: left;
+}
+
+.auth-home:hover .dot {
+  color: var(--red-deep);
+}
+
+.auth-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+}
+
 /* ---- U. — the wordmark standing in for "you" ---- */
 .umark {
   font-family: var(--font-serif);
@@ -2679,6 +2700,26 @@ a {
    tight — a full word space after it would read as the end of a sentence. */
 .umark-dot {
   margin-left: -0.02em;
+}
+
+/* THE MARK INSIDE UPPERCASE MONO.
+   The proof row and the step asides are 11-12px Space Mono, uppercase, with wide
+   tracking. Dropped in unstyled, the serif U is optically tiny against those caps
+   and inherits the letter-spacing, so the period drifts away from it and the whole
+   thing reads as a rendering fault. Three corrections: size it up to match the cap
+   height, drop the inherited tracking, and pull it back onto the baseline. */
+.hero .proof .p .umark,
+.layer .umark {
+  font-size: 1.5em;
+  letter-spacing: 0;
+  line-height: 1;
+  vertical-align: -0.06em;
+}
+
+/* The aside rows are sentence case, not uppercase, so the mark needs less lift. */
+.layer .umark {
+  font-size: 1.35em;
+  vertical-align: -0.04em;
 }
 
 /* ---- the live counter ---- */

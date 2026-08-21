@@ -3,6 +3,7 @@ import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import UMark from '../components/UMark.jsx';
 import { getSupabase } from '../lib/supabase.js';
+import { navigateTo } from '../lib/navigate.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 // Matches MAX_SENDER_NAME_LENGTH on the server, which is the real gate.
@@ -91,9 +92,20 @@ export default function AuthPage() {
     <main className="auth">
       <section className="auth-left">
         <div className="auth-brand">
-          <div className="wordmark">
-            Unique<span className="dot">.</span>
-          </div>
+          {/* The wordmark goes home, which is where people click first — but it is
+              not the only way out: a logo being a link is a convention, not an
+              affordance, and someone who does not know it would be stranded. The
+              explicit link below is the one that is actually discoverable. */}
+          <button
+            type="button"
+            className="auth-home"
+            onClick={() => navigateTo('/')}
+            aria-label="Back to the Unique home page"
+          >
+            <span className="wordmark">
+              Unique<span className="dot">.</span>
+            </span>
+          </button>
           <div className="kicker">Est. at your desk</div>
         </div>
 
@@ -116,7 +128,12 @@ export default function AuthPage() {
           </div>
         </div>
 
-        <div className="kicker">Read-only · Never stored · Human-confirmed</div>
+        <div className="auth-foot">
+          <button type="button" className="linkbtn" onClick={() => navigateTo('/')}>
+            ← Back to the front page
+          </button>
+          <div className="kicker">Read-only · Never stored · Human-confirmed</div>
+        </div>
       </section>
 
       <section className="auth-right">

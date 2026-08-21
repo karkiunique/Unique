@@ -45,7 +45,7 @@ function TwoLayersAside() {
         <span className="n">1</span> Read tone, rhythm, phrasing
       </span>
       <span className="layer">
-        <span className="n">2</span> Re-check draft against you
+        <span className="n">2</span> Re-check draft against <UMark />
       </span>
       <span className="miniclip">worth 15 minutes next week?</span>
     </div>
