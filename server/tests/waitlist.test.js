@@ -145,14 +145,16 @@ describe('POST /api/waitlist', () => {
       { data: null, error: null },
       { data: { created_at: JOINED, seat: 93 }, error: null }
     ];
-    // Three rows total, and this person is the third — so they are No. 91 of 91.
+    // Three rows total, and this person is the third — so they are No. 3 of 3.
+    // Since migration 010 the 88 baseline lives in the TABLE, not in a constant, so
+    // the displayed number is simply the row count.
     positionAnswer = { count: 3, error: null };
     totalAnswer = { count: 3, error: null };
 
     const response = await httpRequest('post', '/api/waitlist').send({ email: EMAIL });
 
     expect(response.status).toBe(201);
-    expect(response.body).toEqual({ seat: 91, count: 91 });
+    expect(response.body).toEqual({ seat: 3, count: 3 });
     expect(response.body.seat).toBe(response.body.count);
     expect(response.body.seat).not.toBe(93);
     // A public route: it must not have required a session to get here.
@@ -168,7 +170,7 @@ describe('POST /api/waitlist', () => {
     expect(loggedText()).not.toContain(EMAIL);
     expect(loggedText()).not.toContain('acme.com');
     // It did log — the assertion above is meaningless if nothing was written.
-    expect(logger.info).toHaveBeenCalledWith('waitlist_joined', { count: 89 });
+    expect(logger.info).toHaveBeenCalledWith('waitlist_joined', { count: 1 });
   });
 
   it('lowercases and trims before writing, so one person is one number', async () => {
@@ -202,7 +204,7 @@ describe('POST /api/waitlist', () => {
     const response = await httpRequest('post', '/api/waitlist').send({ email: EMAIL });
 
     expect(response.status).toBe(201);
-    expect(response.body.seat).toBe(90);
+    expect(response.body.seat).toBe(2);
     // The whole point: no insert was attempted, so no identity value was spent.
     expect(upserts).toHaveLength(0);
   });
@@ -222,8 +224,8 @@ describe('POST /api/waitlist', () => {
   /**
    * A repeat submit adds nobody, so the count must not move — and in particular
    * must not fall back to the RE-SUBMITTER'S OWN number, which is the shape this
-   * got wrong first: an early member (No. 90) re-submitting to a list of 137 was
-   * answered `count: 90`, and the page counted itself down by 47.
+   * got wrong first: an early member re-submitting to a much longer list was
+   * answered with their OWN position as the count, and the page counted itself down.
    *
    * Here the two numbers legitimately DIFFER, and that is correct: you are No. 90
    * on a list that has since grown to 137.
@@ -237,9 +239,9 @@ describe('POST /api/waitlist', () => {
 
     expect(response.status).toBe(201);
     // Their own number is their position, unchanged...
-    expect(response.body.seat).toBe(90);
-    // ...and the list is 88 + 49 = 137. Not 90, and not 138.
-    expect(response.body.count).toBe(137);
+    expect(response.body.seat).toBe(2);
+    // ...and the list is 49. Not 2, and not 50.
+    expect(response.body.count).toBe(49);
   });
 
   it('refuses a malformed address without echoing what was submitted', async () => {
@@ -279,33 +281,35 @@ describe('POST /api/waitlist', () => {
 });
 
 describe('GET /api/waitlist/count', () => {
-  it('counts the rows and adds the base, rather than reading the highest seat', async () => {
+  it('counts the rows rather than reading the highest seat', async () => {
     totalAnswer = { count: 49, error: null };
 
     const response = await httpRequest('get', '/api/waitlist/count');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ count: 137 });
+    expect(response.body).toEqual({ count: 49 });
 
     // head:true so the addresses are never fetched just to be counted.
     expect(selects[0].options).toMatchObject({ count: 'exact', head: true });
   });
 
-  it('shows the base of 88 on an empty table', async () => {
+  // Since 010 an empty table means an empty list: the 88 baseline is 88 ROWS, so a
+  // table without them genuinely has nobody on it.
+  it('shows zero on a genuinely empty table', async () => {
     totalAnswer = { count: 0, error: null };
 
     const response = await httpRequest('get', '/api/waitlist/count');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ count: 88 });
+    expect(response.body).toEqual({ count: 0 });
   });
 
-  it('never reports fewer than the base, even if the count reads null', async () => {
+  it('never reports a negative count when the driver returns null', async () => {
     totalAnswer = { count: null, error: null };
 
     const response = await httpRequest('get', '/api/waitlist/count');
 
-    expect(response.body).toEqual({ count: 88 });
+    expect(response.body).toEqual({ count: 0 });
   });
 
   it('answers 500 on a read failure without exposing the driver message', async () => {
@@ -316,5 +320,35 @@ describe('GET /api/waitlist/count', () => {
     expect(response.status).toBe(500);
     expect(response.body.error).toBe('Could not read the waitlist');
     expect(JSON.stringify(response.body)).not.toContain('relation');
+  });
+});
+
+/**
+ * THE SEEDED BASELINE (migration 010).
+ *
+ * The 88 is 88 real rows now, marked `seeded = true`. The display count includes
+ * them — that is the whole point — but ANYTHING THAT SENDS MAIL MUST NOT. Those are
+ * fabricated addresses at RFC 2606 reserved domains, and the go-live invite mailing
+ * 88 of them from a new Postmark sender is how a transactional domain gets throttled
+ * on day one.
+ */
+describe('realSignupCount — who may actually be contacted', () => {
+  it('excludes the seeded baseline', async () => {
+    totalAnswer = { count: 6, error: null };
+
+    const { realSignupCount } = await import('../src/services/waitlist.js');
+    await realSignupCount();
+
+    const filtered = selects.find((query) => 'seeded' in query.filters);
+    expect(filtered).toBeDefined();
+    expect(filtered.filters.seeded).toBe(false);
+  });
+
+  it('is a DIFFERENT function from the display count, deliberately', async () => {
+    const mod = await import('../src/services/waitlist.js');
+
+    // Conflating "what the page shows" with "who we may email" is precisely the
+    // mistake the seeded flag exists to prevent.
+    expect(mod.realSignupCount).not.toBe(mod.getWaitlistCount);
   });
 });

@@ -14,9 +14,20 @@ import { httpError } from '../lib/httpError.js';
  * on a launch day, and a count read then written cannot survive it.
  */
 
-// The counter reads 88 before anyone has signed up. A display floor, not a row:
-// seats start at 89 so the first real signup is No. 89 and the two never disagree.
-export const WAITLIST_BASE_COUNT = 88;
+/**
+ * ZERO since migration 010, and that is not a removal of the baseline.
+ *
+ * The 88 used to be a display offset added in code. It is now 88 real rows in the
+ * table, marked `seeded = true` and backdated before the first genuine signup — so
+ * the count is simply the row count and a person's number is simply their position.
+ *
+ * Leaving this at 88 after 010 would display 88 + 94 = 182.
+ *
+ * THE SEEDED ROWS MUST NEVER BE MAILED. They are fabricated addresses at RFC 2606
+ * reserved domains, and every query that sends to the waitlist has to filter
+ * `seeded = false` — see realSignupCount() below and the note in migration 010.
+ */
+export const WAITLIST_BASE_COUNT = 0;
 
 // Generous: real addresses are far shorter, and RFC 5321's limit is 254. This is
 // here to bound the write, not to judge the address.
@@ -44,7 +55,7 @@ export function assertValidEmail(email) {
 }
 
 /**
- * The number the live counter shows: the base plus the people actually on the list.
+ * The number the live counter shows: the people on the list, seeded rows included.
  *
  * This is `88 + count(*)`, NOT `max(seat)`. The two agree while seats are dense,
  * and max(seat) was the earlier choice because it reads without a count — but it
@@ -156,4 +167,25 @@ export async function joinWaitlist(rawEmail) {
   const count = await getWaitlistCount();
 
   return { seat, count: Math.max(count, seat) };
+}
+
+
+/**
+ * How many REAL people are on the waitlist, excluding the seeded baseline.
+ *
+ * This is the count that matters for anything with consequences — the go-live invite
+ * send above all, which must never mail a fabricated address. It is deliberately a
+ * separate function from `getWaitlistCount`, which is the display number: conflating
+ * "what the page shows" with "who we may contact" is exactly the mistake the `seeded`
+ * flag exists to prevent.
+ */
+export async function realSignupCount() {
+  const { count, error } = await getSupabaseAdmin()
+    .from('waitlist')
+    .select('*', { count: 'exact', head: true })
+    .eq('seeded', false);
+
+  if (error) throw httpError(500, 'Could not read the waitlist');
+
+  return Math.max(0, Number(count) || 0);
 }

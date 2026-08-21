@@ -168,8 +168,19 @@ create table waitlist (
   email text not null unique,        -- stored lowercased+trimmed; unique makes a re-submit idempotent
   seat bigint generated always as identity (start with 89) unique,
   created_at timestamptz default now(),
-  invited_at timestamptz             -- null until the go-live onboarding mail goes out
+  invited_at timestamptz,            -- null until the go-live onboarding mail goes out
+  seeded boolean not null default false  -- migration 010. SAFETY INTERLOCK, see below.
 );
+-- migration 010: the 88 baseline is 88 REAL ROWS now, not a display offset in code, so
+-- WAITLIST_BASE_COUNT is 0 and the displayed number is simply count(*). The rows are
+-- backdated before the first genuine signup so every real person keeps the number they
+-- were already shown.
+-- `seeded` IS A SAFETY INTERLOCK, NOT A LABEL. Every query that SENDS MAIL to the
+-- waitlist must filter `seeded = false` — use realSignupCount()/the same filter. The
+-- go-live invite mailing 88 fabricated addresses from a new Postmark sender is how a
+-- transactional domain gets throttled on day one. Seeded addresses are all at RFC 2606
+-- reserved domains (example.com/.net/.org) so that if the filter is ever forgotten the
+-- worst case is a bounce into nowhere, never mail to a stranger who never signed up.
 -- migration 007 (landing/waitlist page). These people are NOT users — there is no profiles row and
 -- no auth.uid() — so the usual `user_id = auth.uid()` policy cannot apply. RLS is enabled with NO
 -- policy at all, which denies anon and authenticated outright; only the service-role server touches
@@ -442,6 +453,38 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 **Checker:** after each cycle, grep the diff for these violations — `console.log`/logger calls carrying email bodies or token values, plaintext token persistence, PII in error strings, un-authed data endpoints. Report any as a **FAILURE** with `file:line`, not a warning. This runs in addition to tests/lint/typecheck.
 
 ## Decisions (dated — do not silently revisit)
+
+### 2026-08-20 — The waitlist baseline is rows, not a constant
+
+The 88 was `WAITLIST_BASE_COUNT` added in code. Migration 010 makes it 88 actual rows and
+sets the constant to 0, so the displayed number is `count(*)` and a person's number is
+simply their position.
+
+**I argued against this and was overruled, which is recorded here so it is not re-argued
+from scratch.** The case against: the table is RLS deny-all and has no listing endpoint,
+so nobody outside the server can ever see a row — the seeded data is invisible to every
+audience except whoever holds Supabase dashboard access. The case for it is the owner's:
+the number the site shows should correspond to what is in the table.
+
+**What the decision REQUIRES, and this part is not optional:**
+- **`seeded = true` on every baseline row, and every mail-sending query filters it out.**
+  `waitlist.invited_at` exists so the go-live invite can page through the list; without
+  the filter that send mails 88 fabricated addresses from a Postmark sender with no
+  reputation, which is how a transactional domain gets throttled at launch.
+- **Seeded addresses are at RFC 2606 reserved domains only** (example.com/.net/.org).
+  They can never be delivered to and can never belong to a real person, so a forgotten
+  filter bounces into nowhere instead of mailing a stranger. Realistic addresses at real
+  domains would have turned a mistake into a harm.
+- **`realSignupCount()` is deliberately separate from `getWaitlistCount()`.** One is what
+  the page shows, the other is who may be contacted. Conflating them is the mistake the
+  flag exists to prevent.
+- **Rows are backdated before the first genuine signup**, because a person's number is
+  their position by `created_at`. Seeding at "now" would have renumbered real people down
+  to No. 1-6 after they had already been shown 89-94.
+
+`seat` and position no longer correspond for seeded rows — they take seats 97+ while
+sitting at positions 1-88. Harmless, since nothing user-facing reads `seat`, but it is
+why the two diverge.
 
 ### 2026-08-19 — One Railway service serves the API and the built web app
 
