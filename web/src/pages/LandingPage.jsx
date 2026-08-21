@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import Icon from '../components/Icon.jsx';
+import UMark from '../components/UMark.jsx';
 import LandingSteps from '../components/LandingSteps.jsx';
 import WaitlistJoin from '../components/WaitlistJoin.jsx';
 import { navigateTo } from '../lib/navigate.js';
@@ -16,9 +17,11 @@ import { fetchWaitlistCount } from '../lib/waitlist.js';
  */
 
 const PROOF = [
-  ['lock', 'Gmail read-only'],
-  ['pen-line', 'You approve every send'],
-  ['eye-off', 'Never stored']
+  ['lock', <>Gmail read-only</>],
+  // Plain 'You' here on purpose: this row is 11px uppercase mono, and a serif mark
+  // inside it looks like a glitch rather than a brand token.
+  ['pen-line', <>You approve every send</>],
+  ['eye-off', <>Never stored</>]
 ];
 
 /** In-page anchor scroll, with a fallback for jsdom and older Safari. */
@@ -101,8 +104,8 @@ export default function LandingPage() {
           We make outreach <em>easy</em>.
         </h1>
         <p className="sub">
-          Unique learns how you actually write, finds the right people, and warms up every cold
-          email, so outreach sounds like you, not AI slop.
+          Unique learns how <UMark /> actually write, finds the right people, and warms up every
+          cold email, so outreach sounds like <UMark /> not AI slop.
         </p>
 
         <div className="cta">

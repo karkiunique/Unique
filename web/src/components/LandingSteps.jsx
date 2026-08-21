@@ -1,4 +1,5 @@
 import Icon from './Icon.jsx';
+import UMark from './UMark.jsx';
 
 /**
  * The five "how it works" rows on the landing page.
@@ -126,7 +127,13 @@ const STEPS = [
         Generate your <em>voice profile</em>
       </>
     ),
-    body: 'We take down your last 100 sent emails and run them through two layers of analysis. The first reads tone, rhythm and habits; the second checks the draft back against you, until it genuinely sounds like you, not an approximation.',
+    body: (
+      <>
+        We take down your last 100 sent emails and run them through two layers of analysis. The
+        first reads tone, rhythm and habits; the second checks the draft back against <UMark />
+        until it genuinely sounds like <UMark /> not an approximation.
+      </>
+    ),
     asideKey: 'Two layers',
     Aside: TwoLayersAside
   },
@@ -146,7 +153,13 @@ const STEPS = [
         Every letter, written <em>for one person</em>
       </>
     ),
-    body: "Each recipient gets an email in your voice, shaped by what the background check surfaced. A specific reason you're reaching out, not a mail-merge token. You read the exact words before anything ships.",
+    body: (
+      <>
+        Each recipient gets an email in your voice, shaped by what the background check surfaced. A
+        specific reason you&rsquo;re reaching out, not a mail-merge token. <UMark /> read the exact
+        words before anything ships.
+      </>
+    ),
     asideKey: 'Cold → warm',
     Aside: BenchmarkAside
   },

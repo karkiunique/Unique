@@ -46,7 +46,7 @@ describe('AuthPage', () => {
     render(<AuthPage />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Cold emails that sound like you wrote them.'
+      'Cold emails that sound like U. wrote them.'
     );
     expect(screen.getByText('No. 001 · The voice issue')).toBeInTheDocument();
     expect(screen.getByText('Read-only · Never stored · Human-confirmed')).toBeInTheDocument();
@@ -165,5 +165,36 @@ describe('AuthPage', () => {
 
     release();
     expect(await screen.findByRole('button', { name: 'Enter' })).toBeEnabled();
+  });
+});
+
+/**
+ * THE U. MARK.
+ *
+ * It stands in for "you", so it has to BE "you" to anything that is not looking at
+ * the screen. The first version rendered a visible mark plus a visually-hidden
+ * word, which put both in the DOM — the sentence read "U.you wrote them" to the
+ * clipboard and to any text-content walker.
+ */
+describe('the U. mark', () => {
+  it('announces itself as "you" without duplicating the word in the DOM', () => {
+    render(<AuthPage />);
+
+    const marks = screen.getAllByLabelText('you');
+    expect(marks.length).toBeGreaterThan(0);
+
+    for (const mark of marks) {
+      // What a screen reader says.
+      expect(mark).toHaveAttribute('aria-label', 'you');
+      // What the clipboard gets: the mark, and not a second copy of the word.
+      expect(mark.textContent).toBe('U.');
+      expect(mark.textContent).not.toMatch(/you/i);
+    }
+  });
+
+  it('never renders as "Ur" — that is texting, not the brand', () => {
+    const { container } = render(<AuthPage />);
+
+    expect(container.textContent).not.toMatch(/\bUr\b/);
   });
 });

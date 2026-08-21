@@ -2665,6 +2665,22 @@ a {
   letter-spacing: 0.06em;
 }
 
+/* ---- U. — the wordmark standing in for "you" ---- */
+.umark {
+  font-family: var(--font-serif);
+  color: var(--red);
+  /* Slightly heavier than the prose around it so it reads as a MARK rather than a
+     typo, without shouting. */
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* The period is part of the mark, not sentence punctuation, so it is tucked in
+   tight — a full word space after it would read as the end of a sentence. */
+.umark-dot {
+  margin-left: -0.02em;
+}
+
 /* ---- the live counter ---- */
 .counter {
   display: inline-flex;

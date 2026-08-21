@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import Icon from '../components/Icon.jsx';
+import UMark from '../components/UMark.jsx';
 import { getSupabase } from '../lib/supabase.js';
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -8,9 +9,9 @@ const MIN_PASSWORD_LENGTH = 8;
 const MAX_NAME_LENGTH = 80;
 
 const STEPS = [
-  ['01', 'Connect Gmail, read-only'],
-  ['02', 'We take down how you write'],
-  ['03', 'You approve every word that ships']
+  ['01', <>Connect Gmail, read-only</>],
+  ['02', <>We take down how <UMark /> write</>],
+  ['03', <><UMark /> approve every word that ships</>]
 ];
 
 export default function AuthPage() {
@@ -99,10 +100,10 @@ export default function AuthPage() {
         <div className="auth-hero">
           <div className="kicker red">No. 001 · The voice issue</div>
           <h1>
-            Cold emails that sound like <em>you</em> wrote them.
+            Cold emails that sound like <UMark /> wrote them.
           </h1>
           <p className="lead auth-lead">
-            Because you did. Unique learns your voice from your sent mail, then drafts outreach in
+            Because <UMark /> did. Unique learns your voice from your sent mail, then drafts outreach in
             your hand, sent from your own inbox, never without your say-so.
           </p>
           <div className="auth-steps">
