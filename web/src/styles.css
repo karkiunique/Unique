@@ -2658,6 +2658,13 @@ a {
   font-size: 14px;
 }
 
+/* The counter before the server has answered. Same weight and rough width as a
+   two-or-three digit number, so nothing shifts when the real figure lands. */
+.counter-wait {
+  opacity: 0.35;
+  letter-spacing: 0.06em;
+}
+
 /* ---- the live counter ---- */
 .counter {
   display: inline-flex;

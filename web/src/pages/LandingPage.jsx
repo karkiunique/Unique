@@ -4,7 +4,7 @@ import Icon from '../components/Icon.jsx';
 import LandingSteps from '../components/LandingSteps.jsx';
 import WaitlistJoin from '../components/WaitlistJoin.jsx';
 import { navigateTo } from '../lib/navigate.js';
-import { fetchWaitlistCount, WAITLIST_FALLBACK_COUNT } from '../lib/waitlist.js';
+import { fetchWaitlistCount } from '../lib/waitlist.js';
 
 /**
  * The public front page (Decisions, 2026-08-15).
@@ -29,11 +29,11 @@ function scrollToSection(event, id) {
 }
 
 export default function LandingPage() {
-  // Starts at the fallback rather than at zero or a spinner: the counter is
-  // furniture, and a flash of "0 already on the waitlist" reads worse than a number
-  // that refines itself a moment later. The server's answer replaces it, whatever
-  // that answer is.
-  const [count, setCount] = useState(WAITLIST_FALLBACK_COUNT);
+  // NULL until the server answers. Starting at a number means the page paints one
+  // figure and then visibly corrects itself, which reads as fabricated — it shows
+  // the page had an opinion before it had data. The counter holds a neutral
+  // placeholder instead, for the ~100ms a same-origin GET takes.
+  const [count, setCount] = useState(null);
 
   /**
    * Has the server answered yet? The FIRST real answer replaces the placeholder
@@ -57,7 +57,7 @@ export default function LandingPage() {
       return;
     }
 
-    setCount((current) => Math.max(current, next));
+    setCount((current) => (current === null ? next : Math.max(current, next)));
   }
 
   useEffect(() => {
@@ -117,7 +117,10 @@ export default function LandingPage() {
 
         <div className="counter">
           <span className="dotpulse" aria-hidden="true" />
-          <b>{count}</b> already on the waitlist
+          {/* The box keeps its size either way, so nothing shifts when the number
+              lands — a layout jump would be its own kind of tell. */}
+          <b>{count === null ? <span className="counter-wait">···</span> : count}</b> already on
+          the waitlist
         </div>
 
         <div className="proof">

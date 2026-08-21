@@ -93,7 +93,9 @@ export default function WaitlistJoin({ count, onJoined }) {
 
       <div className="jcount">
         <span className="dotpulse" aria-hidden="true" />
-        <b>{count}</b> already reserved a seat
+        {/* Neutral until the server answers — see LandingPage. */}
+        <b>{count === null ? <span className="counter-wait">···</span> : count}</b> already reserved
+        a seat
       </div>
     </div>
   );

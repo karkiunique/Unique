@@ -87,14 +87,15 @@ describe('LandingPage', () => {
     expect(await screen.findAllByText('137')).toHaveLength(2);
   });
 
-  it('still renders, at the base count, when the API is unreachable', async () => {
+  it('still renders when the API is unreachable, showing no number at all', async () => {
     apiFetch.mockRejectedValue(new Error('Failed to fetch'));
 
     render(<LandingPage />);
 
     expect(screen.getByRole('button', { name: /Reserve my seat/ })).toBeInTheDocument();
-    // Two counters, hero and waitlist block, both holding the base.
-    await waitFor(() => expect(screen.getAllByText('88').length).toBe(2));
+    // No invented figure. A number the page could not have known is worse than none.
+    await waitFor(() => expect(screen.getAllByText('···')).toHaveLength(2));
+    expect(screen.queryByText('88')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -256,11 +257,27 @@ describe('the counter trusts the server', () => {
     await waitFor(() => expect(screen.getAllByText('0')).toHaveLength(2));
   });
 
-  it('falls back only when there is no answer at all', async () => {
-    apiFetch.mockRejectedValue(new Error('Failed to fetch'));
+  /**
+   * THE FLASH. Rendering a placeholder NUMBER and then correcting it is a clearer
+   * tell that the figure is fabricated than any wrong number would be: it shows the
+   * page had an opinion before it had data. So there must be no number on the first
+   * paint at all.
+   */
+  it('paints no number before the server answers', async () => {
+    let resolveCount;
+    apiFetch.mockImplementation(
+      () => new Promise((resolve) => { resolveCount = resolve; })
+    );
 
     render(<LandingPage />);
 
-    await waitFor(() => expect(screen.getAllByText('88')).toHaveLength(2));
+    // First paint: placeholder, and specifically not the old hardcoded 88.
+    expect(screen.getAllByText('···')).toHaveLength(2);
+    expect(screen.queryByText('88')).not.toBeInTheDocument();
+
+    resolveCount({ count: 94 });
+
+    await waitFor(() => expect(screen.getAllByText('94')).toHaveLength(2));
+    expect(screen.queryByText('···')).not.toBeInTheDocument();
   });
 });

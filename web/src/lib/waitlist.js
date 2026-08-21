@@ -8,18 +8,16 @@ import { apiFetch } from './api.js';
  */
 
 /**
- * What the counter shows when the server cannot be reached AT ALL.
+ * NULL until the server answers. There is no placeholder number, deliberately.
  *
- * A fallback, NOT a floor. It used to be both, back when the server added the same
- * 88 as an offset and so could never answer with less — then migration 010 moved
- * the baseline into the table, the server started returning the raw row count, and
- * a `count >= 88` guard here silently threw away every real answer below it. The
- * page showed 88 while the API was plainly returning 6.
+ * A hardcoded starting value announces itself: the page paints 88, the request
+ * lands, and the number jumps to 94 in front of the reader. That flash is a clearer
+ * tell that the figure is fabricated than any wrong number would be, because it
+ * shows the page had an opinion before it had data.
  *
- * Anything finite and non-negative from the server is the truth. This value is only
- * for the case where there is no answer.
+ * So the counter renders a neutral placeholder until it knows, and if it never
+ * finds out it stays neutral rather than inventing something.
  */
-export const WAITLIST_FALLBACK_COUNT = 88;
 
 /**
  * The live count, or the base if anything goes wrong.
@@ -35,10 +33,10 @@ export async function fetchWaitlistCount() {
     const count = Number(payload?.count);
 
     // Trust any real number. A floor here would override the server, which is the
-    // only thing that actually knows.
-    return Number.isFinite(count) && count >= 0 ? count : WAITLIST_FALLBACK_COUNT;
+    // only thing that actually knows. Null means "no answer", never a guess.
+    return Number.isFinite(count) && count >= 0 ? count : null;
   } catch {
-    return WAITLIST_FALLBACK_COUNT;
+    return null;
   }
 }
 
@@ -60,7 +58,9 @@ export async function joinWaitlist(email) {
   const count = Number(payload?.count);
 
   return {
-    seat: Number.isFinite(seat) ? seat : WAITLIST_FALLBACK_COUNT + 1,
-    count: Number.isFinite(count) ? count : WAITLIST_FALLBACK_COUNT + 1
+    // A join that succeeded but answered oddly still happened: fall back to null so
+    // the counter stays neutral rather than displaying a number nobody computed.
+    seat: Number.isFinite(seat) ? seat : null,
+    count: Number.isFinite(count) ? count : null
   };
 }
