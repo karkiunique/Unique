@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 
-import { joinWaitlist, getWaitlistCount } from '../services/waitlist.js';
+import { joinWaitlist, getWaitlistCount, normalizeEmail } from '../services/waitlist.js';
+import { sendWaitlistWelcome } from '../services/waitlistWelcome.js';
 import { safeMessage } from '../lib/httpError.js';
 import { logger } from '../lib/logger.js';
 
@@ -39,16 +40,33 @@ const countLimiter = rateLimit({
  *
  * A repeat address answers 200 with the seat it already holds, deliberately — see
  * Decisions, 2026-08-15.
+ *
+ * A FIRST-TIME joiner is then sent their number by email. `created` decides that
+ * and stays server-side: putting it in the response would tell any caller whether
+ * an address is already on the list, which is the leak the identical-response rule
+ * exists to prevent.
  */
 router.post('/waitlist', joinLimiter, async (req, res) => {
   try {
-    const { seat, count } = await joinWaitlist(req.body?.email);
+    const { seat, count, created } = await joinWaitlist(req.body?.email);
 
     // Counts only. `seat` is not on the logger allowlist and does not need to be:
     // it is the same number as count, and one of them is enough to see traffic.
     logger.info('waitlist_joined', { count });
 
-    return res.status(201).json({ seat, count });
+    res.status(201).json({ seat, count });
+
+    // AFTER the response, and never awaited into it. The row is written and the
+    // visitor has their number; a slow or failing provider must not hold up or
+    // fail a signup that already succeeded. sendWaitlistWelcome resolves on every
+    // outcome, so there is no rejection to leak here.
+    //
+    // `seat` is handed over rather than recomputed: it is the number the page just
+    // showed them, and a signup landing in between would make a recomputed one
+    // disagree with it.
+    if (created) await sendWaitlistWelcome({ to: normalizeEmail(req.body?.email), seat });
+
+    return undefined;
   } catch (err) {
     const status = Number(err?.status) || 500;
     if (status >= 500) logger.error('waitlist_join_failed', { status });

@@ -132,6 +132,16 @@ async function positionOf(createdAt) {
  *
  * Returns `{seat, count}` where BOTH are counted, never sequence-derived, so a
  * fresh joiner's number and the counter are the same value.
+ *
+ * Also returns `created`: whether THIS call is what put the row in the table.
+ * It exists so the confirmation email is sent once, to someone who just asked
+ * for it, and never again on a resubmit. `POST /waitlist` is public and
+ * unauthenticated, so a confirmation that fired on every submit would let anyone
+ * mail a stranger's inbox on repeat, through our Postmark reputation.
+ *
+ * `created` MUST NOT reach the response body. Decisions, 2026-08-15: a response
+ * that tells new and repeat apart is an oracle for whether any given address is
+ * on the list. It is a server-side fact only.
  */
 export async function joinWaitlist(rawEmail) {
   const email = normalizeEmail(rawEmail);
@@ -143,18 +153,28 @@ export async function joinWaitlist(rawEmail) {
   // every repeat submit spends a seat number that no row will ever hold. Checking
   // first means a returning visitor costs nothing.
   let joined = await joinedAt(email);
+  let created = false;
 
   if (joined === null) {
-    const { error: insertError } = await getSupabaseAdmin()
+    // `.select()` on an ignoreDuplicates upsert returns the row ONLY when this
+    // statement is the one that inserted it, and nothing when it conflicted. That
+    // is the authoritative answer to "was it me?" — and the reason the check is
+    // not simply `joined === null` from above. Two submits of the same NEW
+    // address racing here would both have read null and both have claimed the
+    // insert, which is two confirmation emails for one signup.
+    const { data, error: insertError } = await getSupabaseAdmin()
       .from('waitlist')
-      .upsert({ email }, { onConflict: 'email', ignoreDuplicates: true });
+      .upsert({ email }, { onConflict: 'email', ignoreDuplicates: true })
+      .select('created_at');
 
     if (insertError) throw httpError(500, 'Could not join the waitlist');
+
+    created = Array.isArray(data) && data.length > 0;
 
     // Read back rather than trusting the write: under a genuine race between two
     // submits of the same NEW address, one of them inserts nothing and this is
     // what tells it which row won.
-    joined = await joinedAt(email);
+    joined = created ? data[0].created_at : await joinedAt(email);
   }
 
   if (joined === null) throw httpError(500, 'Could not join the waitlist');
@@ -166,7 +186,7 @@ export async function joinWaitlist(rawEmail) {
   const seat = await positionOf(joined);
   const count = await getWaitlistCount();
 
-  return { seat, count: Math.max(count, seat) };
+  return { seat, count: Math.max(count, seat), created };
 }
 
 

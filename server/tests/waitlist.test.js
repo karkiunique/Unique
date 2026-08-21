@@ -28,7 +28,15 @@ import { useSharedTestServer } from './helpers/testServer.js';
  *      above the count, and the two numbers on the page disagree.
  */
 
-const { supabaseFrom } = vi.hoisted(() => ({ supabaseFrom: vi.fn() }));
+const { supabaseFrom, sendWaitlistWelcome } = vi.hoisted(() => ({
+  supabaseFrom: vi.fn(),
+  sendWaitlistWelcome: vi.fn()
+}));
+
+/* Mocked here so this file stays about the route's contract and its numbers. The
+   confirmation email has its own file; leaving the real one wired would have it
+   running after the response, past the point supertest has already resolved. */
+vi.mock('../src/services/waitlistWelcome.js', () => ({ sendWaitlistWelcome }));
 
 vi.mock('../src/lib/supabase.js', () => ({
   getSupabaseAdmin: () => ({ from: supabaseFrom }),
@@ -47,7 +55,13 @@ const EMAIL = 'sam@acme.com';
 
 let upserts = [];
 let selects = [];
-let upsertAnswer = { error: null };
+/**
+ * The write's answer. `data` is what `.select()` returns AFTER the upsert, which
+ * on an `ignoreDuplicates` upsert is the row only when THIS statement inserted
+ * it, and nothing when it conflicted. That is what tells the service whether it
+ * is the one that created the row.
+ */
+let upsertAnswer = { data: undefined, error: null };
 
 const JOINED = '2026-08-15T16:00:00.000Z';
 
@@ -72,7 +86,15 @@ function builderFor() {
   return {
     upsert(values, options) {
       upserts.push({ values, options });
-      return Promise.resolve(upsertAnswer);
+
+      return {
+        // The write's own RETURNING clause, not a query — so it is deliberately
+        // not recorded in `selects`, which tracks reads.
+        select: async () =>
+          upsertAnswer.error
+            ? { data: null, error: upsertAnswer.error }
+            : { data: upsertAnswer.data ?? [{ created_at: JOINED }], error: null }
+      };
     },
     select(columns, options) {
       const query = { columns, options, filters: {}, bounded: false };
@@ -116,8 +138,10 @@ const httpRequest = useSharedTestServer(createApp);
 beforeEach(() => {
   upserts = [];
   selects = [];
-  upsertAnswer = { error: null };
+  upsertAnswer = { data: undefined, error: null };
   joinedAnswers = [{ data: { created_at: JOINED }, error: null }];
+  sendWaitlistWelcome.mockReset();
+  sendWaitlistWelcome.mockResolvedValue({ sent: true });
   positionAnswer = { count: 1, error: null };
   totalAnswer = { count: 1, error: null };
   supabaseFrom.mockReset();
@@ -272,6 +296,9 @@ describe('POST /api/waitlist', () => {
 
   it('answers 500 when the row cannot be read back rather than inventing a seat', async () => {
     joinedAnswers = [{ data: null, error: null }];
+    // The upsert conflicted, so it returned no row, and the read-back finds
+    // nothing either — there is no created_at to be had from either source.
+    upsertAnswer = { data: [], error: null };
 
     const response = await httpRequest('post', '/api/waitlist').send({ email: EMAIL });
 

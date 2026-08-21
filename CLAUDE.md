@@ -454,6 +454,53 @@ These are hard invariants. Any violation is a build failure, same severity as a 
 
 ## Decisions (dated — do not silently revisit)
 
+### 2026-08-21 — The waitlist confirmation: their number, by email, once
+
+A joiner gets a note the moment they sign up, carrying the number the page just
+showed them. Postmark, not Supabase: waitlist rows are NOT auth users (RLS deny-all,
+no `auth.uid()` — 2026-08-15), so Supabase Auth's transactional mail does not apply,
+its built-in SMTP is auth-only and rate-limited to a handful an hour, and an Edge
+Function would be a second deploy target against 2026-08-19. `lib/postmark.js` is
+already the system-mail path and already privacy-hardened.
+
+**SENT ONLY ON A GENUINE FIRST INSERT, and this is a security property, not a
+nicety.** `POST /waitlist` is public, unauthenticated and treats a resubmit as a
+deliberate success. A confirmation wired to every submit turns the endpoint into a
+mailer: put a stranger's address in the box, submit repeatedly, and every one lands
+in their inbox from us, burning a transactional sender's reputation. `joinWaitlist`
+now reports `created`, taken from `.select()` on the `ignoreDuplicates` upsert —
+which returns the row only when THAT statement inserted it. Reading `joined === null`
+from before the write is not enough: two submits of the same new address racing both
+see null and both claim the insert.
+
+**`created` MUST NOT reach the response body.** 2026-08-15 requires new and repeat to
+be indistinguishable, because a response that tells them apart is an oracle for
+whether any address is on the list. It is a server-side fact only.
+
+**The seat is handed to the sender, never recomputed.** It is the number already on
+the visitor's screen; a signup landing in between would make a recomputed one
+disagree with it. That is the bug class 2026-08-15 fought three times.
+
+**A failed send never fails the signup.** The row is written and the number shown
+before the send runs, and it runs after the response. `sendWaitlistWelcome` resolves
+on every outcome and never throws.
+
+**No unsubscribe footer, which applies 2026-08-06 rather than ignoring it.** That
+entry removed the footer from 1:1 mail because it reads as machine-generated and
+undercuts the premise, and named reply-to-opt-out as the convention for a single
+message. This is 1:1 and transactional. The real unsubscribe still belongs on the
+go-live BULK invite, which `waitlist.invited_at` exists to make resumable.
+
+**The form's fine print changed with it.** It promised "One email when it's your
+turn"; there are now two, and the first is not "when it's your turn". It reads "A
+note now, one more when it's your turn". The page states what actually happens —
+the same standard as the reply-rate figures.
+
+Newsreader and Space Mono are self-hosted, so Gmail strips `@font-face` and the
+letter renders in Georgia, already the declared fallback in `--font-serif`. Palette
+hex values are repeated in `waitlistWelcome.js` because email cannot read a
+stylesheet.
+
 ### 2026-08-20 — The waitlist baseline is rows, not a constant
 
 The 88 was `WAITLIST_BASE_COUNT` added in code. Migration 010 makes it 88 actual rows and

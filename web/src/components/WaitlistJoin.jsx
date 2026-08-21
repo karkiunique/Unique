@@ -89,7 +89,13 @@ export default function WaitlistJoin({ count, onJoined }) {
         </p>
       ) : null}
 
-      <div className="fine">No credit card · One email when it’s your turn · Unsubscribe anytime</div>
+      {/* Two emails, so the promise says two. A confirmation goes out on signup
+          with the joiner's number, and the invite follows when their seat opens.
+          The page states what actually happens — same standard as the reply-rate
+          figures above it (Decisions, 2026-08-15). */}
+      <div className="fine">
+        No credit card · A note now, one more when it’s your turn · Unsubscribe anytime
+      </div>
 
       <div className="jcount">
         <span className="dotpulse" aria-hidden="true" />
